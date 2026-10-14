@@ -2,7 +2,7 @@
 ; Generates a professional Windows installer (.exe)
 
 #define MyAppName "YouTube Downloader"
-#define MyAppVersion "1.0.0"
+#define MyAppVersion "1.0.1"
 #define MyAppPublisher "Lucas Sutorus"
 #define MyAppURL "https://github.com/lsutorus/yt-mp3-ls"
 #define MyAppExeName "YouTubeDownloader.exe"
@@ -22,7 +22,7 @@ LicenseFile=LICENSE
 PrivilegesRequired=admin
 PrivilegesRequiredOverridesAllowed=dialog commandline
 OutputDir=dist
-OutputBaseFilename=YouTubeDownloader-v1.0.0-Setup
+OutputBaseFilename=YouTubeDownloader-v1.0.1-Setup
 SetupIconFile=assets\icon.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
 Compression=lzma2/ultra64

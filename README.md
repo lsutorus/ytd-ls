@@ -30,11 +30,11 @@ A lightweight, self-updating desktop YouTube downloader and converter built for 
 
 ## Installation & Downloads
 
-Download the latest version from the [v1.0.0 Releases Page](https://github.com/lsutorus/yt-mp3-ls/releases/tag/v1.0.0):
+Download the latest version from the [v1.0.1 Releases Page](https://github.com/lsutorus/yt-mp3-ls/releases/tag/v1.0.1):
 
-- [**`YouTubeDownloader-v1.0.0-Setup.exe`**](https://github.com/lsutorus/yt-mp3-ls/releases/download/v1.0.0/YouTubeDownloader-v1.0.0-Setup.exe): Recommended Windows installer. Installs to Program Files, creates Start Menu & Desktop shortcuts, and includes an uninstaller.
-- [**`YouTubeDownloader.exe`**](https://github.com/lsutorus/yt-mp3-ls/releases/download/v1.0.0/YouTubeDownloader.exe): Portable standalone executable.
-- [**`YouTubeDownloader-v1.0.0-windows-x64.zip`**](https://github.com/lsutorus/yt-mp3-ls/releases/download/v1.0.0/YouTubeDownloader-v1.0.0-windows-x64.zip): Zip archive containing the standalone executable.
+- [**`YouTubeDownloader-v1.0.1-Setup.exe`**](https://github.com/lsutorus/yt-mp3-ls/releases/download/v1.0.1/YouTubeDownloader-v1.0.1-Setup.exe): Recommended Windows installer. Installs to Program Files, creates Start Menu & Desktop shortcuts, and includes an uninstaller.
+- [**`YouTubeDownloader.exe`**](https://github.com/lsutorus/yt-mp3-ls/releases/download/v1.0.1/YouTubeDownloader.exe): Portable standalone executable.
+- [**`YouTubeDownloader-v1.0.1-windows-x64.zip`**](https://github.com/lsutorus/yt-mp3-ls/releases/download/v1.0.1/YouTubeDownloader-v1.0.1-windows-x64.zip): Zip archive containing the standalone executable.
 
 ---
 
