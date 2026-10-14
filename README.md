@@ -1,5 +1,7 @@
 # YouTube Downloader & Converter
 
+Vibe-coded using Gemini 3.8 Flash High.
+
 A lightweight, self-updating desktop YouTube downloader and converter built for Windows using Python, `customtkinter`, and `yt-dlp`.
 
 ## Features
