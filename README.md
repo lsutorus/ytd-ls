@@ -1,6 +1,6 @@
-# Modern YouTube Downloader & Converter
+# YouTube Downloader & Converter
 
-A lightweight, modern desktop YouTube downloader and converter built for Windows using Python, `customtkinter`, and `yt-dlp`.
+A lightweight, self-updating desktop YouTube downloader and converter built for Windows using Python, `customtkinter`, and `yt-dlp`.
 
 ## Features
 
