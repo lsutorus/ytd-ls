@@ -28,9 +28,17 @@ A lightweight, self-updating desktop YouTube downloader and converter built for 
   - 100% thread-safe: all network and FFmpeg tasks run on background daemon threads, marshaling updates to the UI thread via `after(0, ...)`.
   - Auto-resolving FFmpeg/FFprobe binaries from `./bin/`, `PATH`, or `sys._MEIPASS`.
 
+## Installation & Downloads
+
+Download the latest version from the [v1.0.0 Releases Page](https://github.com/lsutorus/yt-mp3-ls/releases/tag/v1.0.0):
+
+- [**`YouTubeDownloader-v1.0.0-Setup.exe`**](https://github.com/lsutorus/yt-mp3-ls/releases/download/v1.0.0/YouTubeDownloader-v1.0.0-Setup.exe): Recommended Windows installer. Installs to Program Files, creates Start Menu & Desktop shortcuts, and includes an uninstaller.
+- [**`YouTubeDownloader.exe`**](https://github.com/lsutorus/yt-mp3-ls/releases/download/v1.0.0/YouTubeDownloader.exe): Portable standalone executable.
+- [**`YouTubeDownloader-v1.0.0-windows-x64.zip`**](https://github.com/lsutorus/yt-mp3-ls/releases/download/v1.0.0/YouTubeDownloader-v1.0.0-windows-x64.zip): Zip archive containing the standalone executable.
+
 ---
 
-## Launching the Application
+## Launching from Source
 
 To launch the GUI for human testing:
 
