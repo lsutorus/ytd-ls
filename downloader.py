@@ -26,9 +26,17 @@ def get_config_path(config_path: Path | None = None) -> Path:
         return config_path
     appdata = os.environ.get("APPDATA")
     if appdata:
-        base_dir = Path(appdata) / "YouTubeDownloader"
+        base_dir = Path(appdata) / "YouTubeDownloaderLS"
+        # Migrate from legacy directory if needed
+        legacy_cfg = Path(appdata) / "YouTubeDownloader" / "config.json"
+        if not (base_dir / "config.json").is_file() and legacy_cfg.is_file():
+            base_dir.mkdir(parents=True, exist_ok=True)
+            try:
+                shutil.copy2(legacy_cfg, base_dir / "config.json")
+            except Exception:
+                pass
     else:
-        base_dir = Path.home() / ".youtubedownloader"
+        base_dir = Path.home() / ".youtubedownloaderls"
     base_dir.mkdir(parents=True, exist_ok=True)
     return base_dir / "config.json"
 
@@ -67,30 +75,34 @@ def get_default_save_dir(config_path: Path | None = None) -> str:
 
 
 def find_ffmpeg() -> str | None:
-    """Dynamically detect ffmpeg.exe in MEIPASS, ./bin/, current directory, or PATH."""
+    """Dynamically detect ffmpeg.exe in MEIPASS, ./bin/, APPDATA, current directory, or PATH."""
     # 1. PyInstaller bundled directory
     if hasattr(sys, "_MEIPASS"):
-        meipass_ffmpeg = Path(sys._MEIPASS) / "bin" / "ffmpeg.exe"
-        if meipass_ffmpeg.is_file():
-            return str(meipass_ffmpeg)
-        meipass_ffmpeg_root = Path(sys._MEIPASS) / "ffmpeg.exe"
-        if meipass_ffmpeg_root.is_file():
-            return str(meipass_ffmpeg_root)
+        for sub in ("bin/ffmpeg.exe", "ffmpeg.exe"):
+            p = Path(sys._MEIPASS) / sub
+            if p.is_file():
+                return str(p)
 
     # 2. Local ./bin/ relative to this script / project directory
     module_bin = Path(__file__).resolve().parent / "bin" / "ffmpeg.exe"
     if module_bin.is_file():
         return str(module_bin)
 
-    # 3. Current working directory ./bin/ or root
-    cwd_bin = Path.cwd() / "bin" / "ffmpeg.exe"
-    if cwd_bin.is_file():
-        return str(cwd_bin)
-    cwd_ffmpeg = Path.cwd() / "ffmpeg.exe"
-    if cwd_ffmpeg.is_file():
-        return str(cwd_ffmpeg)
+    # 3. User APPDATA bin directory
+    appdata = os.environ.get("APPDATA")
+    if appdata:
+        for app_folder in ("YouTubeDownloaderLS", "YouTubeDownloader"):
+            appdata_ffmpeg = Path(appdata) / app_folder / "bin" / "ffmpeg.exe"
+            if appdata_ffmpeg.is_file():
+                return str(appdata_ffmpeg)
 
-    # 4. System PATH
+    # 4. Current working directory ./bin/ or root
+    for sub in ("bin/ffmpeg.exe", "ffmpeg.exe"):
+        p = Path.cwd() / sub
+        if p.is_file():
+            return str(p)
+
+    # 5. System PATH
     path_ffmpeg = shutil.which("ffmpeg")
     if path_ffmpeg:
         return path_ffmpeg
@@ -99,14 +111,75 @@ def find_ffmpeg() -> str | None:
 
 
 def find_ffprobe() -> str | None:
-    """Dynamically detect ffprobe.exe in MEIPASS, ./bin/, current directory, or PATH."""
+    """Dynamically detect ffprobe.exe in MEIPASS, ./bin/, APPDATA, current directory, or PATH."""
     if hasattr(sys, "_MEIPASS"):
-        meipass_ffprobe = Path(sys._MEIPASS) / "bin" / "ffprobe.exe"
-        if meipass_ffprobe.is_file():
-            return str(meipass_ffprobe)
-        meipass_ffprobe_root = Path(sys._MEIPASS) / "ffprobe.exe"
-        if meipass_ffprobe_root.is_file():
-            return str(meipass_ffprobe_root)
+        for sub in ("bin/ffprobe.exe", "ffprobe.exe"):
+            p = Path(sys._MEIPASS) / sub
+            if p.is_file():
+                return str(p)
+
+    module_bin = Path(__file__).resolve().parent / "bin" / "ffprobe.exe"
+    if module_bin.is_file():
+        return str(module_bin)
+
+    appdata = os.environ.get("APPDATA")
+    if appdata:
+        for app_folder in ("YouTubeDownloaderLS", "YouTubeDownloader"):
+            appdata_ffprobe = Path(appdata) / app_folder / "bin" / "ffprobe.exe"
+            if appdata_ffprobe.is_file():
+                return str(appdata_ffprobe)
+
+    for sub in ("bin/ffprobe.exe", "ffprobe.exe"):
+        p = Path.cwd() / sub
+        if p.is_file():
+            return str(p)
+
+    path_ffprobe = shutil.which("ffprobe")
+    if path_ffprobe:
+        return path_ffprobe
+
+    return None
+
+
+def ensure_ffmpeg(status_callback: Callable[[str], None] | None = None) -> str | None:
+    """Ensure ffmpeg is available. If missing, download Windows static build into APPDATA."""
+    found = find_ffmpeg()
+    if found:
+        return found
+
+    if status_callback:
+        status_callback("Acquiring FFmpeg (one-time background setup)...")
+
+    appdata = os.environ.get("APPDATA")
+    base_bin = Path(appdata) / "YouTubeDownloaderLS" / "bin" if appdata else Path.home() / ".youtubedownloaderls" / "bin"
+    base_bin.mkdir(parents=True, exist_ok=True)
+    target_ffmpeg = base_bin / "ffmpeg.exe"
+
+    if target_ffmpeg.is_file():
+        return str(target_ffmpeg)
+
+    import zipfile
+    url = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip"
+    zip_path = base_bin / "ffmpeg.zip"
+    try:
+        headers = {"User-Agent": "Mozilla/5.0"}
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req, timeout=60) as resp, open(zip_path, "wb") as out:
+            shutil.copyfileobj(resp, out)
+
+        with zipfile.ZipFile(zip_path, "r") as z:
+            for item in z.namelist():
+                if item.endswith("bin/ffmpeg.exe"):
+                    with z.open(item) as src, open(target_ffmpeg, "wb") as dst:
+                        shutil.copyfileobj(src, dst)
+                    break
+        if zip_path.is_file():
+            zip_path.unlink()
+        return str(target_ffmpeg)
+    except Exception as e:
+        if status_callback:
+            status_callback(f"FFmpeg acquisition notice: {e}")
+        return None
 
     module_bin = Path(__file__).resolve().parent / "bin" / "ffprobe.exe"
     if module_bin.is_file():

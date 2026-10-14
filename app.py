@@ -31,7 +31,7 @@ class YouTubeDownloaderApp(ctk.CTk):
         super().__init__()
 
         self.self_test = self_test
-        self.title("YouTube Downloader & Converter")
+        self.title("YouTube Downloader LS")
         self.geometry("860x760")
         self.minsize(780, 700)
         self._set_app_icon()
@@ -99,7 +99,7 @@ class YouTubeDownloaderApp(ctk.CTk):
 
         title_label = ctk.CTkLabel(
             header_frame,
-            text="YouTube Downloader & Converter",
+            text="YouTube Downloader LS",
             font=ctk.CTkFont(size=22, weight="bold"),
             anchor="w",
         )

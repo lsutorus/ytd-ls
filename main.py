@@ -8,7 +8,7 @@ from app import YouTubeDownloaderApp
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="YouTube Downloader & Converter")
+    parser = argparse.ArgumentParser(description="YouTube Downloader LS")
     parser.add_argument(
         "--self-test",
         action="store_true",
