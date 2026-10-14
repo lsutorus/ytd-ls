@@ -42,6 +42,7 @@ class YouTubeDownloaderApp(ctk.CTk):
         self.current_video_info: dict[str, Any] | None = None
         self.is_downloading = False
         self.is_fetching_info = False
+        self.cookie_file_path: str | None = None
 
         # Build UI layout
         self._create_widgets()
@@ -452,6 +453,48 @@ class YouTubeDownloaderApp(ctk.CTk):
         )
         self.chk_playlist.grid(row=0, column=3, sticky="w")
 
+        # 4. Browser Cookies / Account Authentication (Optional)
+        auth_label = ctk.CTkLabel(
+            cust_frame,
+            text="Account Cookies:",
+            font=ctk.CTkFont(size=13, weight="bold"),
+            anchor="w",
+        )
+        auth_label.grid(row=4, column=0, sticky="w", padx=(14, 10), pady=(0, 12))
+
+        auth_frame = ctk.CTkFrame(cust_frame, fg_color="transparent")
+        auth_frame.grid(row=4, column=1, columnspan=2, sticky="ew", padx=(0, 14), pady=(0, 12))
+
+        self.cookie_browser_menu = ctk.CTkOptionMenu(
+            auth_frame,
+            values=["None (Auto)", "Edge", "Chrome", "Firefox", "Brave", "Opera"],
+            width=130,
+            height=30,
+            font=ctk.CTkFont(size=12),
+        )
+        self.cookie_browser_menu.set("None (Auto)")
+        self.cookie_browser_menu.pack(side="left", padx=(0, 8))
+
+        self.btn_cookie_file = ctk.CTkButton(
+            auth_frame,
+            text="Import cookies.txt...",
+            width=140,
+            height=30,
+            font=ctk.CTkFont(size=12),
+            fg_color="#2b2b2b",
+            hover_color="#3a3a3a",
+            command=self._on_import_cookies_clicked,
+        )
+        self.btn_cookie_file.pack(side="left", padx=(0, 8))
+
+        self.cookie_status_label = ctk.CTkLabel(
+            auth_frame,
+            text="(Optional: for age-gated/private videos)",
+            font=ctk.CTkFont(size=11),
+            text_color="gray60",
+        )
+        self.cookie_status_label.pack(side="left")
+
     def _build_bottom_section(self) -> None:
         bottom_frame = ctk.CTkFrame(self.main_container, corner_radius=10)
         bottom_frame.grid(row=5, column=0, sticky="ew", pady=(0, 4), padx=4)
@@ -539,12 +582,26 @@ class YouTubeDownloaderApp(ctk.CTk):
         self.views_label.configure(text="")
         self._set_status("Fetching video details from YouTube...")
 
-        threading.Thread(target=self._worker_fetch_info, args=(url,), daemon=True).start()
+        cookie_browser = self.cookie_browser_menu.get() if hasattr(self, "cookie_browser_menu") else None
+        if cookie_browser and "None" in cookie_browser:
+            cookie_browser = None
+        cookie_file = self.cookie_file_path
 
-    def _worker_fetch_info(self, url: str) -> None:
+        threading.Thread(
+            target=self._worker_fetch_info,
+            args=(url, cookie_browser, cookie_file),
+            daemon=True,
+        ).start()
+
+    def _worker_fetch_info(
+        self,
+        url: str,
+        cookie_browser: str | None = None,
+        cookie_file: str | None = None,
+    ) -> None:
         """Background thread worker for extract_info."""
         try:
-            info = downloader.fetch_video_info(url)
+            info = downloader.fetch_video_info(url, cookies_browser=cookie_browser, cookies_file=cookie_file)
             thumb_img = downloader.fetch_thumbnail_image(info.get("thumbnail_url"))
             self.after(0, lambda: self._on_info_fetched(info, thumb_img))
         except Exception as e:
@@ -606,6 +663,18 @@ class YouTubeDownloaderApp(ctk.CTk):
         # Visual feedback on the button
         self.btn_set_default.configure(text="✓ Saved!", fg_color="#1f6aa5")
         self.after(2000, lambda: self.btn_set_default.configure(text="📌 Set Default", fg_color="#2b2b2b"))
+
+    def _on_import_cookies_clicked(self) -> None:
+        """Select a cookies.txt file exported from browser."""
+        file_path = filedialog.askopenfilename(
+            title="Select cookies.txt File",
+            filetypes=[("Text Files (*.txt)", "*.txt"), ("All Files (*.*)", "*.*")],
+        )
+        if file_path:
+            self.cookie_file_path = os.path.abspath(file_path)
+            file_name = Path(file_path).name
+            self.cookie_status_label.configure(text=f"Loaded: {file_name}", text_color="#3b8ed0")
+            self._set_status(f"Loaded cookies file: {self.cookie_file_path}")
 
     def _on_open_folder_clicked(self) -> None:
         """Open the target download folder in Windows Explorer."""
@@ -691,6 +760,11 @@ class YouTubeDownloaderApp(ctk.CTk):
         self.progress_bar.set(0.0)
         self._set_status("Initializing download...")
 
+        cookie_browser = self.cookie_browser_menu.get() if hasattr(self, "cookie_browser_menu") else None
+        if cookie_browser and "None" in cookie_browser:
+            cookie_browser = None
+        cookie_file = self.cookie_file_path
+
         # Build options
         try:
             ydl_opts = downloader.build_ydl_opts(
@@ -707,6 +781,8 @@ class YouTubeDownloaderApp(ctk.CTk):
                 end_time=end_time,
                 progress_hook=self._progress_hook,
                 postprocessor_hook=self._postprocessor_hook,
+                cookies_browser=cookie_browser,
+                cookies_file=cookie_file,
             )
         except Exception as e:
             self.is_downloading = False

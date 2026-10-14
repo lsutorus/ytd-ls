@@ -323,6 +323,8 @@ def build_ydl_opts(
     progress_hook: Callable[[dict[str, Any]], None] | None = None,
     postprocessor_hook: Callable[[dict[str, Any]], None] | None = None,
     ffmpeg_location: str | None = None,
+    cookies_browser: str | None = None,
+    cookies_file: str | None = None,
 ) -> dict[str, Any]:
     """Build yt-dlp options dictionary according to project rules."""
     opts: dict[str, Any] = {
@@ -331,7 +333,18 @@ def build_ydl_opts(
         "noplaylist": not download_playlist,
         "quiet": True,
         "no_warnings": False,
+        "extractor_args": {
+            "youtube": {
+                "player_client": ["ios", "android", "mweb", "web"]
+            }
+        },
     }
+
+    # Cookies configuration for age-gated or private videos
+    if cookies_file and os.path.isfile(cookies_file):
+        opts["cookiefile"] = cookies_file
+    elif cookies_browser and cookies_browser.lower() not in ("none", ""):
+        opts["cookiesfrombrowser"] = (cookies_browser.lower(),)
 
     # FFmpeg path resolution
     resolved_ffmpeg = ffmpeg_location or get_ffmpeg_location()
@@ -434,7 +447,11 @@ def build_ydl_opts(
     return opts
 
 
-def fetch_video_info(url: str) -> dict[str, Any]:
+def fetch_video_info(
+    url: str,
+    cookies_browser: str | None = None,
+    cookies_file: str | None = None,
+) -> dict[str, Any]:
     """Fetch video metadata asynchronously or synchronously without downloading."""
     ffmpeg_loc = get_ffmpeg_location()
     ydl_opts: dict[str, Any] = {
@@ -442,7 +459,17 @@ def fetch_video_info(url: str) -> dict[str, Any]:
         "skip_download": True,
         "noplaylist": True,
         "extract_flat": False,
+        "extractor_args": {
+            "youtube": {
+                "player_client": ["ios", "android", "mweb", "web"]
+            }
+        },
     }
+    if cookies_file and os.path.isfile(cookies_file):
+        ydl_opts["cookiefile"] = cookies_file
+    elif cookies_browser and cookies_browser.lower() not in ("none", ""):
+        ydl_opts["cookiesfrombrowser"] = (cookies_browser.lower(),)
+
     if ffmpeg_loc:
         ydl_opts["ffmpeg_location"] = ffmpeg_loc
     if shutil.which("node"):

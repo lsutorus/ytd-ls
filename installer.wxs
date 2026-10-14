@@ -1,4 +1,5 @@
-<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
   <Package Name="YouTube Downloader LS"
            Manufacturer="Lucas Sutorus"
            Version="1.0.1"
@@ -10,33 +11,54 @@
 
     <Icon Id="AppIcon" SourceFile="assets\icon.ico" />
     <Property Id="ARPPRODUCTICON" Value="AppIcon" />
+    <Property Id="ApplicationFolderName" Value="YouTube Downloader LS" />
+    <Property Id="WixAppFolder" Value="WixPerMachineFolder" />
+
+    <ui:WixUI Id="WixUI_Advanced" />
+    <WixVariable Id="WixUILicenseRtf" Value="LICENSE.rtf" />
 
     <StandardDirectory Id="ProgramFiles6432Folder">
-      <Directory Id="INSTALLFOLDER" Name="YouTube Downloader LS">
+      <Directory Id="APPLICATIONFOLDER" Name="YouTube Downloader LS">
         <Component Id="MainExecutable" Guid="87B2E338-1E74-4C5C-9A58-7F52E929E57A">
-          <File Id="YouTubeDownloaderLS.exe" Source="dist\YouTubeDownloaderLS.exe" KeyPath="yes">
-            <Shortcut Id="DesktopShortcut"
-                      Directory="DesktopFolder"
-                      Name="YouTube Downloader LS"
-                      WorkingDirectory="INSTALLFOLDER"
-                      Icon="AppIcon"
-                      Advertise="yes" />
-            <Shortcut Id="StartMenuShortcut"
-                      Directory="ProgramMenuFolder"
-                      Name="YouTube Downloader LS"
-                      WorkingDirectory="INSTALLFOLDER"
-                      Icon="AppIcon"
-                      Advertise="yes" />
-          </File>
+          <File Id="YouTubeDownloaderLS.exe" Source="dist\YouTubeDownloaderLS.exe" KeyPath="yes" />
         </Component>
       </Directory>
     </StandardDirectory>
 
-    <StandardDirectory Id="DesktopFolder" />
-    <StandardDirectory Id="ProgramMenuFolder" />
+    <StandardDirectory Id="DesktopFolder">
+      <Component Id="DesktopShortcutComponent" Guid="B4C79F21-6A2E-4D3E-9F3E-2A4B8C1D5E7A">
+        <Shortcut Id="DesktopShortcut"
+                  Name="YouTube Downloader LS"
+                  Description="Launch YouTube Downloader LS"
+                  Target="[APPLICATIONFOLDER]YouTubeDownloaderLS.exe"
+                  WorkingDirectory="APPLICATIONFOLDER"
+                  Icon="AppIcon" />
+        <RegistryValue Root="HKCU" Key="Software\LucasSutorus\YouTubeDownloaderLS" Name="DesktopShortcut" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </StandardDirectory>
 
-    <Feature Id="MainFeature" Title="YouTube Downloader LS" Level="1">
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Component Id="StartMenuShortcutComponent" Guid="D3F12A45-8C9E-4B1D-9F2A-5E7A8C1B4D2E">
+        <Shortcut Id="StartMenuShortcut"
+                  Name="YouTube Downloader LS"
+                  Description="Launch YouTube Downloader LS"
+                  Target="[APPLICATIONFOLDER]YouTubeDownloaderLS.exe"
+                  WorkingDirectory="APPLICATIONFOLDER"
+                  Icon="AppIcon" />
+        <RegistryValue Root="HKCU" Key="Software\LucasSutorus\YouTubeDownloaderLS" Name="StartMenuShortcut" Type="integer" Value="1" KeyPath="yes" />
+      </Component>
+    </StandardDirectory>
+
+    <Feature Id="MainFeature" Title="YouTube Downloader LS" Description="Main application files." Level="1" AllowAbsent="no">
       <ComponentRef Id="MainExecutable" />
+    </Feature>
+
+    <Feature Id="DesktopShortcutFeature" Title="Desktop Shortcut" Description="Add a shortcut icon on your Desktop." Level="1" AllowAbsent="yes">
+      <ComponentRef Id="DesktopShortcutComponent" />
+    </Feature>
+
+    <Feature Id="StartMenuShortcutFeature" Title="Start Menu Shortcut" Description="Add a shortcut icon to your Start Menu." Level="1" AllowAbsent="yes">
+      <ComponentRef Id="StartMenuShortcutComponent" />
     </Feature>
   </Package>
 </Wix>
