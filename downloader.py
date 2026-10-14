@@ -1,0 +1,409 @@
+"""Backend module for YouTube video extraction and downloading using yt-dlp and FFmpeg.
+
+This module provides headless functions and option builders that can be unit-tested
+independently of any GUI framework.
+"""
+
+from __future__ import annotations
+
+import io
+import json
+import os
+import re
+import shutil
+import sys
+import urllib.request
+from pathlib import Path
+from typing import Any, Callable
+
+from PIL import Image
+import yt_dlp
+from yt_dlp.utils import download_range_func
+
+CONFIG_FILE = Path(__file__).resolve().parent / "config.json"
+
+
+def load_config(config_path: Path | None = None) -> dict[str, Any]:
+    """Load configuration from config.json."""
+    cfg_file = config_path or CONFIG_FILE
+    if cfg_file.is_file():
+        try:
+            with open(cfg_file, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return {}
+    return {}
+
+
+def save_config(data: dict[str, Any], config_path: Path | None = None) -> None:
+    """Save configuration dictionary to config.json."""
+    cfg_file = config_path or CONFIG_FILE
+    current = load_config(cfg_file)
+    current.update(data)
+    with open(cfg_file, "w", encoding="utf-8") as f:
+        json.dump(current, f, indent=2)
+
+
+def get_default_save_dir(config_path: Path | None = None) -> str:
+    """Retrieve default save directory from config, falling back to ~/Downloads or cwd."""
+    cfg = load_config(config_path)
+    saved = cfg.get("default_output_dir")
+    if saved and os.path.isdir(saved):
+        return os.path.abspath(saved)
+    default_dl = str(Path.home() / "Downloads")
+    if os.path.isdir(default_dl):
+        return default_dl
+    return os.getcwd()
+
+
+def find_ffmpeg() -> str | None:
+    """Dynamically detect ffmpeg.exe in MEIPASS, ./bin/, current directory, or PATH."""
+    # 1. PyInstaller bundled directory
+    if hasattr(sys, "_MEIPASS"):
+        meipass_ffmpeg = Path(sys._MEIPASS) / "bin" / "ffmpeg.exe"
+        if meipass_ffmpeg.is_file():
+            return str(meipass_ffmpeg)
+        meipass_ffmpeg_root = Path(sys._MEIPASS) / "ffmpeg.exe"
+        if meipass_ffmpeg_root.is_file():
+            return str(meipass_ffmpeg_root)
+
+    # 2. Local ./bin/ relative to this script / project directory
+    module_bin = Path(__file__).resolve().parent / "bin" / "ffmpeg.exe"
+    if module_bin.is_file():
+        return str(module_bin)
+
+    # 3. Current working directory ./bin/ or root
+    cwd_bin = Path.cwd() / "bin" / "ffmpeg.exe"
+    if cwd_bin.is_file():
+        return str(cwd_bin)
+    cwd_ffmpeg = Path.cwd() / "ffmpeg.exe"
+    if cwd_ffmpeg.is_file():
+        return str(cwd_ffmpeg)
+
+    # 4. System PATH
+    path_ffmpeg = shutil.which("ffmpeg")
+    if path_ffmpeg:
+        return path_ffmpeg
+
+    return None
+
+
+def find_ffprobe() -> str | None:
+    """Dynamically detect ffprobe.exe in MEIPASS, ./bin/, current directory, or PATH."""
+    if hasattr(sys, "_MEIPASS"):
+        meipass_ffprobe = Path(sys._MEIPASS) / "bin" / "ffprobe.exe"
+        if meipass_ffprobe.is_file():
+            return str(meipass_ffprobe)
+        meipass_ffprobe_root = Path(sys._MEIPASS) / "ffprobe.exe"
+        if meipass_ffprobe_root.is_file():
+            return str(meipass_ffprobe_root)
+
+    module_bin = Path(__file__).resolve().parent / "bin" / "ffprobe.exe"
+    if module_bin.is_file():
+        return str(module_bin)
+
+    cwd_bin = Path.cwd() / "bin" / "ffprobe.exe"
+    if cwd_bin.is_file():
+        return str(cwd_bin)
+    cwd_ffprobe = Path.cwd() / "ffprobe.exe"
+    if cwd_ffprobe.is_file():
+        return str(cwd_ffprobe)
+
+    path_ffprobe = shutil.which("ffprobe")
+    if path_ffprobe:
+        return path_ffprobe
+
+    return None
+
+
+def get_ffmpeg_location() -> str | None:
+    """Return the directory containing ffmpeg or the executable path for ydl_opts."""
+    ffmpeg_path = find_ffmpeg()
+    if not ffmpeg_path:
+        return None
+    # Passing the directory allows yt-dlp to find both ffmpeg and ffprobe
+    p = Path(ffmpeg_path)
+    if p.is_file():
+        return str(p.parent)
+    return str(p)
+
+
+def parse_time_to_seconds(time_str: str | None) -> float | None:
+    """Parse a time string formatted as SS, MM:SS, or HH:MM:SS into float seconds."""
+    if not time_str:
+        return None
+    cleaned = time_str.strip()
+    if not cleaned:
+        return None
+
+    try:
+        parts = cleaned.split(":")
+        if len(parts) == 1:
+            return float(parts[0])
+        elif len(parts) == 2:
+            minutes, seconds = float(parts[0]), float(parts[1])
+            if minutes < 0 or seconds < 0:
+                return None
+            return minutes * 60.0 + seconds
+        elif len(parts) == 3:
+            hours, minutes, seconds = float(parts[0]), float(parts[1]), float(parts[2])
+            if hours < 0 or minutes < 0 or seconds < 0:
+                return None
+            return hours * 3600.0 + minutes * 60.0 + seconds
+    except (ValueError, TypeError):
+        return None
+    return None
+
+
+def format_duration(seconds: int | float | None) -> str:
+    """Format duration in seconds into HH:MM:SS or MM:SS."""
+    if seconds is None:
+        return "Unknown"
+    sec = int(seconds)
+    hours = sec // 3600
+    minutes = (sec % 3600) // 60
+    remaining_secs = sec % 60
+    if hours > 0:
+        return f"{hours}:{minutes:02d}:{remaining_secs:02d}"
+    return f"{minutes:02d}:{remaining_secs:02d}"
+
+
+def strip_ansi(text: str) -> str:
+    """Remove ANSI escape sequences from strings."""
+    ansi_regex = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]")
+    return ansi_regex.sub("", text)
+
+
+def format_progress(d: dict[str, Any]) -> tuple[float, str]:
+    """Parse yt-dlp progress hook data into (percentage_float, formatted_status_str)."""
+    status = d.get("status")
+    if status == "downloading":
+        total = d.get("total_bytes") or d.get("total_bytes_estimate")
+        downloaded = d.get("downloaded_bytes", 0)
+
+        if total and total > 0:
+            pct_float = max(0.0, min(1.0, downloaded / total))
+            pct_str = f"{pct_float * 100:.1f}%"
+        else:
+            raw_pct = d.get("_percent_str", "")
+            raw_clean = strip_ansi(raw_pct).replace("%", "").strip()
+            try:
+                pct_float = max(0.0, min(1.0, float(raw_clean) / 100.0))
+                pct_str = f"{pct_float * 100:.1f}%"
+            except ValueError:
+                pct_float = 0.0
+                pct_str = "0.0%"
+
+        speed_raw = d.get("_speed_str") or ""
+        speed_clean = strip_ansi(speed_raw).strip() or "N/A"
+
+        eta_raw = d.get("_eta_str") or ""
+        eta_clean = strip_ansi(eta_raw).strip() or "--:--"
+
+        status_text = f"Downloading: {pct_str} | Speed: {speed_clean} | ETA: {eta_clean}"
+        return pct_float, status_text
+
+    elif status == "finished":
+        return 1.0, "Download completed. Processing..."
+    elif status == "error":
+        return 0.0, "Download error encountered."
+
+    return 0.0, "Preparing..."
+
+
+def extract_resolution_height(resolution_str: str) -> str | None:
+    """Extract numeric height from resolution string like '1080p' -> '1080'."""
+    if not resolution_str or "Best" in resolution_str:
+        return None
+    match = re.search(r"(\d+)", resolution_str)
+    return match.group(1) if match else None
+
+
+def extract_bitrate(bitrate_str: str) -> str:
+    """Extract numeric bitrate like '320 kbps (Best)' -> '320'."""
+    match = re.search(r"(\d+)", bitrate_str)
+    return match.group(1) if match else "192"
+
+
+def build_ydl_opts(
+    output_dir: str,
+    mode: str = "Video (MP4)",
+    resolution: str = "Best Available (4K/8K)",
+    audio_bitrate: str = "320 kbps (Best)",
+    audio_format: str = "M4A (Raw Audio)",
+    embed_thumbnail: bool = True,
+    embed_metadata: bool = True,
+    download_subtitles: bool = False,
+    download_playlist: bool = False,
+    start_time: str | None = None,
+    end_time: str | None = None,
+    progress_hook: Callable[[dict[str, Any]], None] | None = None,
+    postprocessor_hook: Callable[[dict[str, Any]], None] | None = None,
+    ffmpeg_location: str | None = None,
+) -> dict[str, Any]:
+    """Build yt-dlp options dictionary according to project rules."""
+    opts: dict[str, Any] = {
+        "outtmpl": os.path.join(output_dir, "%(title)s.%(ext)s"),
+        "windowsfilenames": True,
+        "noplaylist": not download_playlist,
+        "quiet": True,
+        "no_warnings": False,
+    }
+
+    # FFmpeg path resolution
+    resolved_ffmpeg = ffmpeg_location or get_ffmpeg_location()
+    if resolved_ffmpeg:
+        opts["ffmpeg_location"] = resolved_ffmpeg
+
+    # JavaScript runtime (node if available)
+    if shutil.which("node"):
+        opts["js_runtimes"] = {"node": {}}
+
+    # Postprocessors list
+    postprocessors: list[dict[str, Any]] = []
+
+    # Format logic based on mode
+    norm_mode = mode.lower()
+    height = extract_resolution_height(resolution)
+
+    if "video (mp4)" in norm_mode:
+        if height:
+            opts["format"] = (
+                f"bv*[height<={height}][ext=mp4]+ba[ext=m4a]/"
+                f"b[height<={height}][ext=mp4]/"
+                f"bv*[height<={height}]+ba/"
+                f"b[height<={height}]"
+            )
+        else:
+            opts["format"] = "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/bv*+ba/b"
+        opts["merge_output_format"] = "mp4"
+
+    elif "audio only (mp3)" in norm_mode:
+        opts["format"] = "bestaudio/best"
+        bitrate_val = extract_bitrate(audio_bitrate)
+        postprocessors.append({
+            "key": "FFmpegExtractAudio",
+            "preferredcodec": "mp3",
+            "preferredquality": bitrate_val,
+        })
+
+    elif "audio only" in norm_mode:  # M4A / WAV / FLAC
+        audio_choice = audio_format.lower()
+        if "m4a" in audio_choice:
+            # Raw M4A without re-encoding
+            opts["format"] = "bestaudio[ext=m4a]/bestaudio"
+        else:
+            opts["format"] = "bestaudio/best"
+            codec = "flac" if "flac" in audio_choice else "wav"
+            postprocessors.append({
+                "key": "FFmpegExtractAudio",
+                "preferredcodec": codec,
+            })
+
+    elif "video only" in norm_mode:  # Muted MP4
+        if height:
+            opts["format"] = f"bv*[height<={height}][ext=mp4]/bv*[height<={height}]"
+        else:
+            opts["format"] = "bv*[ext=mp4]/bv*"
+        opts["merge_output_format"] = "mp4"
+
+    else:
+        # Default fallback
+        opts["format"] = "bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]/bv*+ba/b"
+        opts["merge_output_format"] = "mp4"
+
+    # Subtitles
+    if download_subtitles:
+        opts["writesubtitles"] = True
+        opts["writeautomaticsub"] = True
+        opts["subtitleslangs"] = ["en", "en-US", "en-GB"]
+        # If in a video mode, embed subtitles into container
+        if "video" in norm_mode:
+            postprocessors.append({"key": "FFmpegEmbedSubtitle"})
+
+    # Embed Thumbnail
+    if embed_thumbnail:
+        opts["writethumbnail"] = True
+        postprocessors.append({"key": "EmbedThumbnail"})
+
+    # Embed Metadata
+    if embed_metadata:
+        postprocessors.append({"key": "FFmpegMetadata", "add_metadata": True})
+
+    if postprocessors:
+        opts["postprocessors"] = postprocessors
+
+    # Clip / Trim range
+    s_sec = parse_time_to_seconds(start_time)
+    e_sec = parse_time_to_seconds(end_time)
+    if s_sec is not None or e_sec is not None:
+        start_val = s_sec if s_sec is not None else 0.0
+        end_val = e_sec if e_sec is not None else float("inf")
+        opts["download_ranges"] = download_range_func(None, [(start_val, end_val)])
+        opts["force_keyframes_at_cuts"] = True
+
+    # Hooks
+    if progress_hook:
+        opts["progress_hooks"] = [progress_hook]
+    if postprocessor_hook:
+        opts["postprocessor_hooks"] = [postprocessor_hook]
+
+    return opts
+
+
+def fetch_video_info(url: str) -> dict[str, Any]:
+    """Fetch video metadata asynchronously or synchronously without downloading."""
+    ffmpeg_loc = get_ffmpeg_location()
+    ydl_opts: dict[str, Any] = {
+        "quiet": True,
+        "skip_download": True,
+        "noplaylist": True,
+        "extract_flat": False,
+    }
+    if ffmpeg_loc:
+        ydl_opts["ffmpeg_location"] = ffmpeg_loc
+    if shutil.which("node"):
+        ydl_opts["js_runtimes"] = {"node": {}}
+
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(url, download=False)
+        if not info:
+            raise ValueError("No video metadata could be retrieved.")
+
+        # In case a playlist URL was passed with extract_flat=False
+        if "entries" in info and info["entries"]:
+            info = info["entries"][0]
+
+        duration = info.get("duration")
+        view_count = info.get("view_count")
+
+        return {
+            "title": info.get("title") or "Unknown Title",
+            "channel": info.get("uploader") or info.get("channel") or "Unknown Channel",
+            "duration": duration,
+            "duration_formatted": format_duration(duration),
+            "thumbnail_url": info.get("thumbnail"),
+            "view_count": view_count,
+            "views_formatted": f"{view_count:,} views" if view_count is not None else "",
+            "webpage_url": info.get("webpage_url") or url,
+        }
+
+
+def fetch_thumbnail_image(thumbnail_url: str | None) -> Image.Image | None:
+    """Download thumbnail image into memory and return a PIL Image."""
+    if not thumbnail_url:
+        return None
+    try:
+        headers = {"User-Agent": "Mozilla/5.0"}
+        req = urllib.request.Request(thumbnail_url, headers=headers)
+        with urllib.request.urlopen(req, timeout=10) as response:
+            data = response.read()
+            return Image.open(io.BytesIO(data))
+    except Exception:
+        return None
+
+
+def download_video(url: str, ydl_opts: dict[str, Any]) -> None:
+    """Execute download for the given URL using the configured options."""
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        ydl.download([url])
