@@ -20,12 +20,22 @@ from PIL import Image
 import yt_dlp
 from yt_dlp.utils import download_range_func
 
-CONFIG_FILE = Path(__file__).resolve().parent / "config.json"
+def get_config_path(config_path: Path | None = None) -> Path:
+    """Return persistent user config path in APPDATA or provided path."""
+    if config_path:
+        return config_path
+    appdata = os.environ.get("APPDATA")
+    if appdata:
+        base_dir = Path(appdata) / "YouTubeDownloader"
+    else:
+        base_dir = Path.home() / ".youtubedownloader"
+    base_dir.mkdir(parents=True, exist_ok=True)
+    return base_dir / "config.json"
 
 
 def load_config(config_path: Path | None = None) -> dict[str, Any]:
-    """Load configuration from config.json."""
-    cfg_file = config_path or CONFIG_FILE
+    """Load configuration from persistent config.json."""
+    cfg_file = get_config_path(config_path)
     if cfg_file.is_file():
         try:
             with open(cfg_file, "r", encoding="utf-8") as f:
@@ -36,8 +46,8 @@ def load_config(config_path: Path | None = None) -> dict[str, Any]:
 
 
 def save_config(data: dict[str, Any], config_path: Path | None = None) -> None:
-    """Save configuration dictionary to config.json."""
-    cfg_file = config_path or CONFIG_FILE
+    """Save configuration dictionary to persistent config.json."""
+    cfg_file = get_config_path(config_path)
     current = load_config(cfg_file)
     current.update(data)
     with open(cfg_file, "w", encoding="utf-8") as f:

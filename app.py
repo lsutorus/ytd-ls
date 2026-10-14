@@ -34,6 +34,7 @@ class YouTubeDownloaderApp(ctk.CTk):
         self.title("YouTube Downloader & Converter")
         self.geometry("860x760")
         self.minsize(780, 700)
+        self._set_app_icon()
 
         # Default state variables
         self.output_dir = downloader.get_default_save_dir()
@@ -48,6 +49,21 @@ class YouTubeDownloaderApp(ctk.CTk):
         # Check self-test mode
         if self.self_test:
             self.after(200, self._run_self_test_sequence)
+
+    def _set_app_icon(self) -> None:
+        """Set window icon from assets/icon.ico if available."""
+        candidates = [
+            Path(__file__).resolve().parent / "assets" / "icon.ico",
+            Path(getattr(sys, "_MEIPASS", "")) / "assets" / "icon.ico",
+            Path(getattr(sys, "_MEIPASS", "")) / "icon.ico",
+        ]
+        for c in candidates:
+            if c.is_file():
+                try:
+                    self.iconbitmap(str(c))
+                    break
+                except Exception:
+                    pass
 
     def _create_widgets(self) -> None:
         # Main scrollable or padded frame
