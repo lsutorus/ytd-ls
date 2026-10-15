@@ -74,6 +74,15 @@ def get_default_save_dir(config_path: Path | None = None) -> str:
     return os.getcwd()
 
 
+def get_saved_cookie_file(config_path: Path | None = None) -> str | None:
+    """Retrieve saved cookies.txt path from config if it exists on disk."""
+    cfg = load_config(config_path)
+    saved = cfg.get("cookie_file_path")
+    if saved and os.path.isfile(saved):
+        return os.path.abspath(saved)
+    return None
+
+
 def find_ffmpeg() -> str | None:
     """Dynamically detect ffmpeg.exe in MEIPASS, ./bin/, APPDATA, current directory, or PATH."""
     # 1. PyInstaller bundled directory
@@ -327,18 +336,28 @@ def build_ydl_opts(
     cookies_file: str | None = None,
 ) -> dict[str, Any]:
     """Build yt-dlp options dictionary according to project rules."""
+    has_cookies = bool(
+        (cookies_file and os.path.isfile(cookies_file))
+        or (cookies_browser and cookies_browser.lower() not in ("none", ""))
+    )
+
     opts: dict[str, Any] = {
         "outtmpl": os.path.join(output_dir, "%(title)s.%(ext)s"),
         "windowsfilenames": True,
         "noplaylist": not download_playlist,
         "quiet": True,
         "no_warnings": False,
-        "extractor_args": {
+        "remote_components": ["ejs:github"],
+    }
+
+    # Only force mobile/alternate client fallback when unauthenticated (avoids 429 bot checks).
+    # When cookies are passed, yt-dlp uses its default authenticated client chain (iOS/Android do not support cookies).
+    if not has_cookies:
+        opts["extractor_args"] = {
             "youtube": {
                 "player_client": ["ios", "android", "mweb", "web"]
             }
-        },
-    }
+        }
 
     # Cookies configuration for age-gated or private videos
     if cookies_file and os.path.isfile(cookies_file):
@@ -351,9 +370,16 @@ def build_ydl_opts(
     if resolved_ffmpeg:
         opts["ffmpeg_location"] = resolved_ffmpeg
 
-    # JavaScript runtime (node if available)
+    # JavaScript runtime resolution (Node, Deno, Bun)
+    js_runtimes: dict[str, Any] = {}
     if shutil.which("node"):
-        opts["js_runtimes"] = {"node": {}}
+        js_runtimes["node"] = {}
+    if shutil.which("deno"):
+        js_runtimes["deno"] = {}
+    if shutil.which("bun"):
+        js_runtimes["bun"] = {}
+    if js_runtimes:
+        opts["js_runtimes"] = js_runtimes
 
     # Postprocessors list
     postprocessors: list[dict[str, Any]] = []
@@ -454,17 +480,25 @@ def fetch_video_info(
 ) -> dict[str, Any]:
     """Fetch video metadata asynchronously or synchronously without downloading."""
     ffmpeg_loc = get_ffmpeg_location()
+    has_cookies = bool(
+        (cookies_file and os.path.isfile(cookies_file))
+        or (cookies_browser and cookies_browser.lower() not in ("none", ""))
+    )
+
     ydl_opts: dict[str, Any] = {
         "quiet": True,
         "skip_download": True,
         "noplaylist": True,
         "extract_flat": False,
-        "extractor_args": {
+        "remote_components": ["ejs:github"],
+    }
+    if not has_cookies:
+        ydl_opts["extractor_args"] = {
             "youtube": {
                 "player_client": ["ios", "android", "mweb", "web"]
             }
-        },
-    }
+        }
+
     if cookies_file and os.path.isfile(cookies_file):
         ydl_opts["cookiefile"] = cookies_file
     elif cookies_browser and cookies_browser.lower() not in ("none", ""):
@@ -472,8 +506,16 @@ def fetch_video_info(
 
     if ffmpeg_loc:
         ydl_opts["ffmpeg_location"] = ffmpeg_loc
+
+    js_runtimes: dict[str, Any] = {}
     if shutil.which("node"):
-        ydl_opts["js_runtimes"] = {"node": {}}
+        js_runtimes["node"] = {}
+    if shutil.which("deno"):
+        js_runtimes["deno"] = {}
+    if shutil.which("bun"):
+        js_runtimes["bun"] = {}
+    if js_runtimes:
+        ydl_opts["js_runtimes"] = js_runtimes
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=False)

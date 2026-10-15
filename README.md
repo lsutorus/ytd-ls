@@ -5,7 +5,7 @@ A lightweight, modern YouTube downloader and converter for Windows.
 ## Download & Install
 
 Download the Windows Installer:
-- ⬇️ [**Download YouTube Downloader LS (MSI Installer)**](https://github.com/lsutorus/ytd-ls/releases/download/v1.0.1/YouTubeDownloaderLS-v1.0.1.msi)
+- ⬇️ [**Download YouTube Downloader LS (MSI Installer)**](https://github.com/lsutorus/ytd-ls/releases/download/v1.0.2/YouTubeDownloaderLS-v1.0.2.msi)
 
 Double-click the `.msi` file to install. It automatically sets up shortcuts on your Desktop and Start Menu.
 

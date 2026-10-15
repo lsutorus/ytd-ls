@@ -13,6 +13,7 @@ import threading
 from pathlib import Path
 from tkinter import filedialog, messagebox
 from typing import Any
+import webbrowser
 
 import customtkinter as ctk
 from PIL import Image, ImageDraw
@@ -42,7 +43,7 @@ class YouTubeDownloaderApp(ctk.CTk):
         self.current_video_info: dict[str, Any] | None = None
         self.is_downloading = False
         self.is_fetching_info = False
-        self.cookie_file_path: str | None = None
+        self.cookie_file_path: str | None = downloader.get_saved_cookie_file()
 
         # Build UI layout
         self._create_widgets()
@@ -52,9 +53,18 @@ class YouTubeDownloaderApp(ctk.CTk):
             self.after(200, self._run_self_test_sequence)
 
     def _set_app_icon(self) -> None:
-        """Set window icon from assets/icon.ico if available."""
+        """Set window and taskbar icon from YouTube Downloader LS.ico or assets/icon.ico."""
+        if sys.platform == "win32":
+            try:
+                import ctypes
+                ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("lucassutorus.youtubedownloaderls.1.0")
+            except Exception:
+                pass
+
         candidates = [
+            Path(__file__).resolve().parent / "YouTube Downloader LS.ico",
             Path(__file__).resolve().parent / "assets" / "icon.ico",
+            Path(getattr(sys, "_MEIPASS", "")) / "YouTube Downloader LS.ico",
             Path(getattr(sys, "_MEIPASS", "")) / "assets" / "icon.ico",
             Path(getattr(sys, "_MEIPASS", "")) / "icon.ico",
         ]
@@ -92,6 +102,7 @@ class YouTubeDownloaderApp(ctk.CTk):
 
         # Set initial dynamic quality state
         self._on_mode_changed(self.mode_selector.get())
+        self._refresh_cookie_ui()
 
     def _build_header_section(self) -> None:
         header_frame = ctk.CTkFrame(self.main_container, fg_color="transparent")
@@ -313,38 +324,38 @@ class YouTubeDownloaderApp(ctk.CTk):
                 self.dynamic_menu.set("M4A (Raw Audio)")
 
     def _build_customization_section(self) -> None:
-        cust_frame = ctk.CTkFrame(self.main_container, corner_radius=10)
-        cust_frame.grid(row=4, column=0, sticky="ew", pady=(0, 12), padx=4)
-        cust_frame.grid_columnconfigure(1, weight=1)
+        self.cust_tabview = ctk.CTkTabview(self.main_container, corner_radius=10, height=130)
+        self.cust_tabview.grid(row=4, column=0, sticky="ew", pady=(0, 12), padx=4)
 
-        cust_title = ctk.CTkLabel(
-            cust_frame,
-            text="Customization & Output Options",
-            font=ctk.CTkFont(size=14, weight="bold"),
-            anchor="w",
-        )
-        cust_title.grid(row=0, column=0, columnspan=3, sticky="w", padx=14, pady=(12, 10))
+        tab_general = self.cust_tabview.add("General")
+        tab_advanced = self.cust_tabview.add("Advanced")
+        self.cust_tabview.set("General")
+
+        # ---------------------------------------------------------------------
+        # Tab 1: General Options
+        # ---------------------------------------------------------------------
+        tab_general.grid_columnconfigure(1, weight=1)
 
         # 1. Save Folder
         folder_label = ctk.CTkLabel(
-            cust_frame,
+            tab_general,
             text="Save Location:",
             font=ctk.CTkFont(size=13, weight="bold"),
             anchor="w",
         )
-        folder_label.grid(row=1, column=0, sticky="w", padx=(14, 10), pady=(0, 10))
+        folder_label.grid(row=0, column=0, sticky="w", padx=(10, 10), pady=(4, 8))
 
         self.folder_entry = ctk.CTkEntry(
-            cust_frame,
+            tab_general,
             height=32,
             font=ctk.CTkFont(size=12),
         )
         self.folder_entry.insert(0, self.output_dir)
-        self.folder_entry.grid(row=1, column=1, sticky="ew", padx=(0, 10), pady=(0, 10))
+        self.folder_entry.grid(row=0, column=1, sticky="ew", padx=(0, 10), pady=(4, 8))
 
         # Button container for Browse and Set as Default
-        folder_btn_frame = ctk.CTkFrame(cust_frame, fg_color="transparent")
-        folder_btn_frame.grid(row=1, column=2, sticky="e", padx=(0, 14), pady=(0, 10))
+        folder_btn_frame = ctk.CTkFrame(tab_general, fg_color="transparent")
+        folder_btn_frame.grid(row=0, column=2, sticky="e", padx=(0, 10), pady=(4, 8))
 
         self.btn_browse = ctk.CTkButton(
             folder_btn_frame,
@@ -370,15 +381,15 @@ class YouTubeDownloaderApp(ctk.CTk):
 
         # 2. Clip / Trim Time Range
         clip_label = ctk.CTkLabel(
-            cust_frame,
+            tab_general,
             text="Clip / Trim (Optional):",
             font=ctk.CTkFont(size=13, weight="bold"),
             anchor="w",
         )
-        clip_label.grid(row=2, column=0, sticky="w", padx=(14, 10), pady=(0, 10))
+        clip_label.grid(row=1, column=0, sticky="w", padx=(10, 10), pady=(0, 8))
 
-        clip_boxes_frame = ctk.CTkFrame(cust_frame, fg_color="transparent")
-        clip_boxes_frame.grid(row=2, column=1, columnspan=2, sticky="w", pady=(0, 10))
+        clip_boxes_frame = ctk.CTkFrame(tab_general, fg_color="transparent")
+        clip_boxes_frame.grid(row=1, column=1, columnspan=2, sticky="w", pady=(0, 8))
 
         start_lbl = ctk.CTkLabel(clip_boxes_frame, text="Start:")
         start_lbl.pack(side="left", padx=(0, 6))
@@ -412,58 +423,59 @@ class YouTubeDownloaderApp(ctk.CTk):
         )
         hint_lbl.pack(side="left")
 
-        # 3. Checkboxes
-        check_frame = ctk.CTkFrame(cust_frame, fg_color="transparent")
-        check_frame.grid(row=3, column=0, columnspan=3, sticky="ew", padx=14, pady=(4, 14))
-        check_frame.grid_columnconfigure((0, 1, 2, 3), weight=1)
+        # ---------------------------------------------------------------------
+        # Tab 2: Advanced Options (Checkboxes + Account Cookies)
+        # ---------------------------------------------------------------------
+        tab_advanced.grid_columnconfigure((0, 1, 2, 3), weight=1)
 
+        # 1. Advanced Checkboxes
         self.var_embed_thumb = ctk.BooleanVar(value=True)
         self.chk_thumb = ctk.CTkCheckBox(
-            check_frame,
+            tab_advanced,
             text="Embed Thumbnail",
             variable=self.var_embed_thumb,
             font=ctk.CTkFont(size=12),
         )
-        self.chk_thumb.grid(row=0, column=0, sticky="w", padx=(0, 10))
+        self.chk_thumb.grid(row=0, column=0, sticky="w", padx=(10, 10), pady=(6, 12))
 
         self.var_embed_meta = ctk.BooleanVar(value=True)
         self.chk_meta = ctk.CTkCheckBox(
-            check_frame,
+            tab_advanced,
             text="Embed Metadata",
             variable=self.var_embed_meta,
             font=ctk.CTkFont(size=12),
         )
-        self.chk_meta.grid(row=0, column=1, sticky="w", padx=(0, 10))
+        self.chk_meta.grid(row=0, column=1, sticky="w", padx=(0, 10), pady=(6, 12))
 
         self.var_subtitles = ctk.BooleanVar(value=False)
         self.chk_subs = ctk.CTkCheckBox(
-            check_frame,
+            tab_advanced,
             text="Download Subtitles",
             variable=self.var_subtitles,
             font=ctk.CTkFont(size=12),
         )
-        self.chk_subs.grid(row=0, column=2, sticky="w", padx=(0, 10))
+        self.chk_subs.grid(row=0, column=2, sticky="w", padx=(0, 10), pady=(6, 12))
 
         self.var_playlist = ctk.BooleanVar(value=False)
         self.chk_playlist = ctk.CTkCheckBox(
-            check_frame,
+            tab_advanced,
             text="Download Entire Playlist",
             variable=self.var_playlist,
             font=ctk.CTkFont(size=12),
         )
-        self.chk_playlist.grid(row=0, column=3, sticky="w")
+        self.chk_playlist.grid(row=0, column=3, sticky="w", padx=(0, 10), pady=(6, 12))
 
-        # 4. Browser Cookies / Account Authentication (Optional)
+        # 2. Browser Cookies / Account Authentication (Optional)
+        auth_frame = ctk.CTkFrame(tab_advanced, fg_color="transparent")
+        auth_frame.grid(row=1, column=0, columnspan=4, sticky="ew", padx=10, pady=(0, 8))
+
         auth_label = ctk.CTkLabel(
-            cust_frame,
+            auth_frame,
             text="Account Cookies:",
             font=ctk.CTkFont(size=13, weight="bold"),
             anchor="w",
         )
-        auth_label.grid(row=4, column=0, sticky="w", padx=(14, 10), pady=(0, 12))
-
-        auth_frame = ctk.CTkFrame(cust_frame, fg_color="transparent")
-        auth_frame.grid(row=4, column=1, columnspan=2, sticky="ew", padx=(0, 14), pady=(0, 12))
+        auth_label.pack(side="left", padx=(0, 10))
 
         self.cookie_browser_menu = ctk.CTkOptionMenu(
             auth_frame,
@@ -485,7 +497,19 @@ class YouTubeDownloaderApp(ctk.CTk):
             hover_color="#3a3a3a",
             command=self._on_import_cookies_clicked,
         )
-        self.btn_cookie_file.pack(side="left", padx=(0, 8))
+        self.btn_cookie_file.pack(side="left", padx=(0, 6))
+
+        self.btn_cookie_guide = ctk.CTkButton(
+            auth_frame,
+            text="❓ Guide",
+            width=65,
+            height=30,
+            font=ctk.CTkFont(size=12),
+            fg_color="#1f6aa5",
+            hover_color="#144f7a",
+            command=self._show_cookie_guide,
+        )
+        self.btn_cookie_guide.pack(side="left", padx=(0, 8))
 
         self.cookie_status_label = ctk.CTkLabel(
             auth_frame,
@@ -493,7 +517,19 @@ class YouTubeDownloaderApp(ctk.CTk):
             font=ctk.CTkFont(size=11),
             text_color="gray60",
         )
-        self.cookie_status_label.pack(side="left")
+        self.cookie_status_label.pack(side="left", padx=(0, 6))
+
+        self.btn_clear_cookie = ctk.CTkButton(
+            auth_frame,
+            text="✕ Clear",
+            width=60,
+            height=28,
+            font=ctk.CTkFont(size=11),
+            fg_color="#3a2222",
+            hover_color="#552222",
+            command=self._on_clear_cookies_clicked,
+        )
+        # Visibility controlled dynamically by _refresh_cookie_ui()
 
     def _build_bottom_section(self) -> None:
         bottom_frame = ctk.CTkFrame(self.main_container, corner_radius=10)
@@ -631,7 +667,179 @@ class YouTubeDownloaderApp(ctk.CTk):
         self.title_label.configure(text="Unable to load video info")
         self.channel_label.configure(text=error_msg[:120])
         self.duration_label.configure(text="Duration: --:--")
+        if self._handle_authentication_error(error_msg):
+            return
         self._set_status(f"Error fetching info: {error_msg}")
+
+    def _handle_authentication_error(self, error_msg: str) -> bool:
+        """Inspect error messages for YouTube authentication or cookie barriers and offer guided setup."""
+        lower = error_msg.lower()
+        if "confirm your age" in lower or "age-restricted" in lower:
+            self._set_status("❌ Age-restricted video: YouTube account authentication required.")
+            if not self.self_test:
+                ans = messagebox.askyesno(
+                    "Age-Restricted Video",
+                    "This video is age-restricted by YouTube and requires account authentication.\n\n"
+                    "Google Chrome and Microsoft Edge encrypt their cookie databases and do not store a plain text file on your PC.\n\n"
+                    "Would you like to open the Cookie Setup Guide to see how to export cookies using a browser extension?",
+                )
+                if ans:
+                    self.cust_tabview.set("Advanced")
+                    self._show_cookie_guide()
+            return True
+
+        if "could not copy chrome cookie database" in lower or "failed to decrypt with dpapi" in lower:
+            self._set_status("❌ Browser cookie database blocked by browser encryption.")
+            if not self.self_test:
+                ans = messagebox.askyesno(
+                    "Browser Cookies Locked",
+                    "Google Chrome / Microsoft Edge on Windows encrypts its cookie database with App-Bound Encryption, "
+                    "which prevents external applications from reading cookies directly.\n\n"
+                    "Would you like to open the Cookie Setup Guide to export cookies using a browser extension?",
+                )
+                if ans:
+                    self.cust_tabview.set("Advanced")
+                    self._show_cookie_guide()
+            return True
+
+        return False
+
+    def _refresh_cookie_ui(self) -> None:
+        """Update cookie status label and clear button visibility."""
+        if hasattr(self, "cookie_status_label") and hasattr(self, "btn_clear_cookie"):
+            if self.cookie_file_path and os.path.isfile(self.cookie_file_path):
+                file_name = Path(self.cookie_file_path).name
+                self.cookie_status_label.configure(
+                    text=f"Loaded: {file_name}",
+                    text_color="#3b8ed0",
+                )
+                self.btn_clear_cookie.pack(side="left", padx=(4, 0))
+            else:
+                self.cookie_status_label.configure(
+                    text="(Optional: for age-gated/private videos)",
+                    text_color="gray60",
+                )
+                self.btn_clear_cookie.pack_forget()
+
+    def _on_clear_cookies_clicked(self) -> None:
+        """Remove currently configured cookies file."""
+        self.cookie_file_path = None
+        downloader.save_config({"cookie_file_path": None})
+        self._refresh_cookie_ui()
+        self._set_status("Cookies removed.")
+
+    def _show_cookie_guide(self) -> None:
+        """Display an interactive modal guide for exporting cookies to bypass age gates."""
+        guide = ctk.CTkToplevel(self)
+        guide.title("Cookie Setup & Age-Restriction Guide")
+        guide.geometry("620x510")
+        guide.resizable(False, False)
+        guide.transient(self)
+        guide.grab_set()
+
+        # Header
+        hdr_frame = ctk.CTkFrame(guide, fg_color="transparent")
+        hdr_frame.pack(fill="x", padx=24, pady=(20, 10))
+
+        title_lbl = ctk.CTkLabel(
+            hdr_frame,
+            text="🍪 How to Download Age-Restricted Videos",
+            font=ctk.CTkFont(size=17, weight="bold"),
+            anchor="w",
+        )
+        title_lbl.pack(anchor="w")
+
+        sub_lbl = ctk.CTkLabel(
+            hdr_frame,
+            text=(
+                "YouTube requires an authenticated 18+ account to download age-restricted content.\n"
+                "Because Google Chrome & Edge encrypt cookies on disk, they do not produce a plain text file."
+            ),
+            font=ctk.CTkFont(size=12),
+            text_color="gray70",
+            justify="left",
+            anchor="w",
+        )
+        sub_lbl.pack(anchor="w", pady=(6, 0))
+
+        # Steps Card
+        card = ctk.CTkFrame(guide, corner_radius=10)
+        card.pack(fill="both", expand=True, padx=24, pady=10)
+
+        steps_text = (
+            "Quick 1-Minute Setup (Done Once):\n\n"
+            "1. Install a free, open-source cookie export extension in your browser.\n\n"
+            "2. Open YouTube (youtube.com) and verify you are signed into your 18+ account.\n\n"
+            "3. Click the extension icon in your browser toolbar and click \"Export\" to save 'cookies.txt'.\n\n"
+            "4. Click \"Select cookies.txt File...\" below to import it into YouTube Downloader LS.\n"
+            "   (Your cookies will be saved in your local settings for future downloads)."
+        )
+        steps_lbl = ctk.CTkLabel(
+            card,
+            text=steps_text,
+            font=ctk.CTkFont(size=12),
+            justify="left",
+            anchor="nw",
+            wraplength=540,
+        )
+        steps_lbl.pack(fill="both", expand=True, padx=16, pady=16)
+
+        # Extension Store Shortcuts
+        links_frame = ctk.CTkFrame(guide, fg_color="transparent")
+        links_frame.pack(fill="x", padx=24, pady=(0, 10))
+
+        btn_chrome = ctk.CTkButton(
+            links_frame,
+            text="🌐 Open Chrome Web Store Extension",
+            height=32,
+            font=ctk.CTkFont(size=12, weight="bold"),
+            fg_color="#1f6aa5",
+            hover_color="#144f7a",
+            command=lambda: webbrowser.open(
+                "https://chromewebstore.google.com/detail/get-cookiestxt-locally/cclelndahbckbenkjhflpdbgdldlbecc"
+            ),
+        )
+        btn_chrome.pack(side="left", padx=(0, 8))
+
+        btn_firefox = ctk.CTkButton(
+            links_frame,
+            text="🦊 Open Firefox Add-on",
+            height=32,
+            font=ctk.CTkFont(size=12),
+            fg_color="#2b2b2b",
+            hover_color="#3a3a3a",
+            command=lambda: webbrowser.open("https://addons.mozilla.org/en-US/firefox/addon/cookies-txt/"),
+        )
+        btn_firefox.pack(side="left")
+
+        # Bottom Action Bar
+        action_frame = ctk.CTkFrame(guide, fg_color="transparent")
+        action_frame.pack(fill="x", padx=24, pady=(10, 20))
+
+        def _on_guide_select_file() -> None:
+            guide.destroy()
+            self._on_import_cookies_clicked()
+
+        btn_choose = ctk.CTkButton(
+            action_frame,
+            text="📁 Select cookies.txt File...",
+            height=36,
+            font=ctk.CTkFont(size=13, weight="bold"),
+            command=_on_guide_select_file,
+        )
+        btn_choose.pack(side="left")
+
+        btn_close = ctk.CTkButton(
+            action_frame,
+            text="Close",
+            width=80,
+            height=36,
+            font=ctk.CTkFont(size=12),
+            fg_color="#2b2b2b",
+            hover_color="#3a3a3a",
+            command=guide.destroy,
+        )
+        btn_close.pack(side="right")
 
     def _on_browse_clicked(self) -> None:
         """Select download folder via file dialog."""
@@ -672,9 +880,25 @@ class YouTubeDownloaderApp(ctk.CTk):
         )
         if file_path:
             self.cookie_file_path = os.path.abspath(file_path)
-            file_name = Path(file_path).name
-            self.cookie_status_label.configure(text=f"Loaded: {file_name}", text_color="#3b8ed0")
+            downloader.save_config({"cookie_file_path": self.cookie_file_path})
+            self._refresh_cookie_ui()
             self._set_status(f"Loaded cookies file: {self.cookie_file_path}")
+            if not self.self_test:
+                messagebox.showinfo(
+                    "Cookies Loaded",
+                    f"Cookies loaded successfully from:\n{Path(file_path).name}\n\n"
+                    "Age-restricted and private videos can now be downloaded.\n"
+                    "This setting is saved automatically for future launches.",
+                )
+        else:
+            if not self.cookie_file_path and not self.self_test:
+                if messagebox.askyesno(
+                    "Need Help Finding Cookies?",
+                    "Did not select a cookies.txt file.\n\n"
+                    "Google Chrome and Microsoft Edge encrypt cookies and do not store a plain text file on your PC.\n\n"
+                    "Would you like to open the Cookie Setup Guide to see how to export cookies in 30 seconds?",
+                ):
+                    self._show_cookie_guide()
 
     def _on_open_folder_clicked(self) -> None:
         """Open the target download folder in Windows Explorer."""
@@ -833,6 +1057,8 @@ class YouTubeDownloaderApp(ctk.CTk):
         self.is_downloading = False
         self.btn_download.configure(state="normal", text="⬇️ Download Now")
         self._set_status(f"❌ Download failed: {error_msg}")
+        if self._handle_authentication_error(error_msg):
+            return
         messagebox.showerror("Download Error", f"Download encountered an error:\n{error_msg}")
 
     def _set_status(self, text: str) -> None:
@@ -860,17 +1086,32 @@ class YouTubeDownloaderApp(ctk.CTk):
             self._on_mode_changed(test_mode)
             print(f"[Self-Test] Verified mode switch: {test_mode} -> Dynamic Label: '{self.dynamic_label.cget('text')}'")
 
-        # 4. Toggle checkboxes
+        # 4. Verify customization tabs and checkbox defaults
+        assert self.cust_tabview.get() == "General", f"Expected active tab 'General', got {self.cust_tabview.get()}"
+        assert self.var_embed_thumb.get() is True, "Expected Embed Thumbnail default to be True"
+        assert self.var_embed_meta.get() is True, "Expected Embed Metadata default to be True"
+        self.cust_tabview.set("Advanced")
+        assert self.cust_tabview.get() == "Advanced"
         self.var_embed_thumb.set(False)
         self.var_embed_meta.set(False)
         self.var_subtitles.set(True)
         self.var_playlist.set(True)
-        print("[Self-Test] Verified checkbox toggling.")
+        self.cust_tabview.set("General")
+        print("[Self-Test] Verified tab switching and checkbox defaults.")
 
         # 5. Test Set as Default button
         self._on_set_default_folder_clicked()
         print("[Self-Test] Verified Set as Default folder action.")
 
-        # 6. Schedule clean termination after 1500ms
+        # 6. Test cookie UI and auth error handling
+        assert hasattr(self, "btn_cookie_guide")
+        assert hasattr(self, "btn_clear_cookie")
+        assert self._handle_authentication_error("ERROR: Sign in to confirm your age.") is True
+        assert self._handle_authentication_error("ERROR: Could not copy Chrome cookie database.") is True
+        assert self._handle_authentication_error("ERROR: network timeout") is False
+        self._refresh_cookie_ui()
+        print("[Self-Test] Verified cookie guide hooks and auth error handling.")
+
+        # 7. Schedule clean termination after 1500ms
         print("[Self-Test] All UI components initialized cleanly. Terminating in 1500ms...")
         self.after(1500, self.destroy)

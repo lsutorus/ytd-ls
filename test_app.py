@@ -277,6 +277,14 @@ def test_config_persistence(tmp_path: Path) -> None:
     default_dir = downloader.get_default_save_dir(test_cfg)
     assert default_dir == str(tmp_path)
 
+    cookie_dummy = tmp_path / "test_cookies.txt"
+    cookie_dummy.write_text("# Netscape HTTP Cookie File", encoding="utf-8")
+    downloader.save_config({"cookie_file_path": str(cookie_dummy)}, test_cfg)
+    assert downloader.get_saved_cookie_file(test_cfg) == str(cookie_dummy)
+
+    downloader.save_config({"cookie_file_path": str(tmp_path / "non_existent.txt")}, test_cfg)
+    assert downloader.get_saved_cookie_file(test_cfg) is None
+
 
 # -----------------------------------------------------------------------------
 # 6. GUI Instantiation Smoke Test
@@ -287,14 +295,24 @@ def test_gui_instantiation() -> None:
     assert hasattr(app, "url_entry")
     assert hasattr(app, "mode_selector")
     assert hasattr(app, "dynamic_menu")
+    assert hasattr(app, "cust_tabview")
     assert hasattr(app, "progress_bar")
     assert hasattr(app, "btn_download")
     assert hasattr(app, "btn_open_folder")
     assert hasattr(app, "btn_set_default")
+    assert hasattr(app, "btn_cookie_guide")
+    assert hasattr(app, "btn_clear_cookie")
 
     # Verify default mode is Audio Only (MP3)
     assert app.mode_selector.get() == "Audio Only (MP3)"
     assert app.dynamic_label.cget("text") == "Audio Bitrate:"
+
+    # Verify default tab & checkbox states
+    assert app.cust_tabview.get() == "General"
+    assert app.var_embed_thumb.get() is True
+    assert app.var_embed_meta.get() is True
+    assert app.var_subtitles.get() is False
+    assert app.var_playlist.get() is False
 
     # Destroy window immediately
     app.destroy()
