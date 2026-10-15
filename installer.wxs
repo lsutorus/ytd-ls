@@ -2,7 +2,7 @@
      xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
   <Package Name="YouTube Downloader LS"
            Manufacturer="Lucas Sutorus"
-           Version="1.0.2"
+           Version="1.0.3"
            UpgradeCode="4C5E89B1-3E2A-4A47-8B1F-1D7F2A48C0A9"
            Scope="perMachine">
     <MajorUpgrade DowngradeErrorMessage="A newer version of [ProductName] is already installed." />

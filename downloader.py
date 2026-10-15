@@ -12,6 +12,7 @@ import os
 import re
 import shutil
 import sys
+import tempfile
 import urllib.request
 from pathlib import Path
 from typing import Any, Callable
@@ -559,3 +560,64 @@ def download_video(url: str, ydl_opts: dict[str, Any]) -> None:
     """Execute download for the given URL using the configured options."""
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         ydl.download([url])
+
+
+# -----------------------------------------------------------------------------
+# Application Version & GitHub Update Helpers
+# -----------------------------------------------------------------------------
+APP_VERSION = "1.0.3"
+GITHUB_REPO = "lsutorus/ytd-ls"
+
+
+def parse_version_tuple(v: str) -> tuple[int, ...]:
+    """Convert a version string into a tuple of integers for comparison."""
+    nums = re.findall(r"\d+", v)
+    return tuple(int(n) for n in nums) if nums else (0,)
+
+
+def check_for_app_update(
+    current_version: str = APP_VERSION,
+    repo: str = GITHUB_REPO,
+) -> dict[str, Any] | None:
+    """Query GitHub Releases API to detect if a newer release is published."""
+    try:
+        url = f"https://api.github.com/repos/{repo}/releases/latest"
+        req = urllib.request.Request(url, headers={"User-Agent": "YouTubeDownloaderLS"})
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            tag = data.get("tag_name", "").lstrip("v")
+            if parse_version_tuple(tag) > parse_version_tuple(current_version):
+                msi_url = None
+                for asset in data.get("assets", []):
+                    if asset.get("name", "").endswith(".msi"):
+                        msi_url = asset.get("browser_download_url")
+                        break
+                return {
+                    "version": tag,
+                    "tag": data.get("tag_name"),
+                    "html_url": data.get("html_url"),
+                    "msi_url": msi_url or data.get("html_url"),
+                    "notes": data.get("body", ""),
+                }
+    except Exception:
+        pass
+    return None
+
+
+def download_update_msi(msi_url: str, progress_callback: Callable[[float], None] | None = None) -> str | None:
+    """Download the MSI installer to a temp file and return its absolute path."""
+    try:
+        temp_dir = Path(tempfile.gettempdir())
+        msi_dest = temp_dir / "YouTubeDownloaderLS-Update.msi"
+        req = urllib.request.Request(msi_url, headers={"User-Agent": "YouTubeDownloaderLS"})
+        with urllib.request.urlopen(req, timeout=60) as resp, open(msi_dest, "wb") as f:
+            total_size = int(resp.headers.get("content-length", 0))
+            downloaded = 0
+            while chunk := resp.read(65536):
+                f.write(chunk)
+                downloaded += len(chunk)
+                if progress_callback and total_size > 0:
+                    progress_callback(min(1.0, downloaded / total_size))
+        return str(msi_dest.resolve())
+    except Exception:
+        return None

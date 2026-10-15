@@ -51,6 +51,8 @@ class YouTubeDownloaderApp(ctk.CTk):
         # Check self-test mode
         if self.self_test:
             self.after(200, self._run_self_test_sequence)
+        else:
+            self.after(2000, lambda: self._trigger_app_update_check(manual=False))
 
     def _set_app_icon(self) -> None:
         """Set window and taskbar icon from YouTube Downloader LS.ico or assets/icon.ico."""
@@ -127,18 +129,40 @@ class YouTubeDownloaderApp(ctk.CTk):
         except Exception:
             cur_version = "yt-dlp"
 
+        # App version and update check button
+        self.app_version_label = ctk.CTkLabel(
+            corner_frame,
+            text=f"App v{downloader.APP_VERSION}",
+            font=ctk.CTkFont(size=12),
+            text_color="gray60",
+        )
+        self.app_version_label.pack(side="left", padx=(0, 6))
+
+        self.btn_app_update = ctk.CTkButton(
+            corner_frame,
+            text="Check for App Update",
+            width=135,
+            height=26,
+            font=ctk.CTkFont(size=11),
+            fg_color="#2b2b2b",
+            hover_color="#3a3a3a",
+            command=lambda: self._trigger_app_update_check(manual=True),
+        )
+        self.btn_app_update.pack(side="left", padx=(0, 10))
+
+        # yt-dlp version and update button
         self.version_label = ctk.CTkLabel(
             corner_frame,
             text=cur_version,
             font=ctk.CTkFont(size=12),
             text_color="gray60",
         )
-        self.version_label.pack(side="left", padx=(0, 8))
+        self.version_label.pack(side="left", padx=(0, 6))
 
         self.btn_update = ctk.CTkButton(
             corner_frame,
             text="Update yt-dlp",
-            width=100,
+            width=95,
             height=26,
             font=ctk.CTkFont(size=11),
             fg_color="#2b2b2b",
@@ -952,6 +976,91 @@ class YouTubeDownloaderApp(ctk.CTk):
         self._set_status(f"Error during yt-dlp update: {err}")
 
     # -------------------------------------------------------------------------
+    # Application Release Update Management
+    # -------------------------------------------------------------------------
+    def _trigger_app_update_check(self, manual: bool = False) -> None:
+        """Query GitHub Releases API in a background thread to check for new app versions."""
+        if manual:
+            self.btn_app_update.configure(state="disabled", text="Checking...")
+            self._set_status("Checking GitHub for app updates...")
+
+        def _worker() -> None:
+            update = downloader.check_for_app_update(downloader.APP_VERSION)
+            self.after(0, lambda: self._on_app_update_check_finished(update, manual))
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _on_app_update_check_finished(self, update: dict[str, Any] | None, manual: bool) -> None:
+        if update:
+            new_tag = update.get("tag", "new version")
+            self.btn_app_update.configure(
+                state="normal",
+                text=f"⭐ Update to {new_tag}",
+                fg_color="#1f6aa5",
+                hover_color="#144f7a",
+                command=lambda: self._prompt_and_install_app_update(update),
+            )
+            self._set_status(f"A new app release is available: {new_tag}")
+            if manual or not self.self_test:
+                if messagebox.askyesno(
+                    "App Update Available",
+                    f"A new version of YouTube Downloader LS ({new_tag}) is available!\n\n"
+                    "Would you like to automatically download and install the update now?",
+                ):
+                    self._prompt_and_install_app_update(update)
+        else:
+            self.btn_app_update.configure(state="normal", text="Check for App Update")
+            if manual and not self.self_test:
+                self._set_status(f"YouTube Downloader LS (v{downloader.APP_VERSION}) is up to date.")
+                messagebox.showinfo(
+                    "Up to Date",
+                    f"YouTube Downloader LS (v{downloader.APP_VERSION}) is currently the newest version.",
+                )
+
+    def _prompt_and_install_app_update(self, update: dict[str, Any]) -> None:
+        """Download and launch the new MSI installer to upgrade the application."""
+        msi_url = update.get("msi_url")
+        if not msi_url:
+            webbrowser.open(update.get("html_url", ""))
+            return
+
+        self.btn_app_update.configure(state="disabled", text="Downloading...")
+        self._set_status(f"Downloading {update.get('tag')} installer...")
+        self.progress_bar.set(0.0)
+
+        def _worker() -> None:
+            def _prog(pct: float) -> None:
+                self.after(0, lambda: self.progress_bar.set(pct))
+
+            msi_path = downloader.download_update_msi(msi_url, progress_callback=_prog)
+            if msi_path and os.path.isfile(msi_path):
+                self.after(0, lambda: self._launch_msi_and_exit(msi_path))
+            else:
+                self.after(0, lambda: self._on_app_update_download_failed(update))
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _launch_msi_and_exit(self, msi_path: str) -> None:
+        """Execute the downloaded MSI installer and exit the current app instance."""
+        try:
+            self._set_status("Launching installer...")
+            os.startfile(msi_path)
+            self.after(500, self.destroy)
+        except Exception as e:
+            messagebox.showerror("Update Error", f"Failed to launch installer:\n{e}")
+            self.btn_app_update.configure(state="normal", text="Update App")
+
+    def _on_app_update_download_failed(self, update: dict[str, Any]) -> None:
+        self.btn_app_update.configure(state="normal", text="Update App")
+        self._set_status("Failed to download update installer.")
+        if not self.self_test and messagebox.askyesno(
+            "Download Error",
+            "Could not automatically download the update installer.\n\n"
+            "Would you like to open the GitHub release page to download it manually?",
+        ):
+            webbrowser.open(update.get("html_url", ""))
+
+    # -------------------------------------------------------------------------
     # Download Execution & Thread-Safe UI Callbacks
     # -------------------------------------------------------------------------
     def _on_download_clicked(self) -> None:
@@ -1112,6 +1221,13 @@ class YouTubeDownloaderApp(ctk.CTk):
         self._refresh_cookie_ui()
         print("[Self-Test] Verified cookie guide hooks and auth error handling.")
 
-        # 7. Schedule clean termination after 1500ms
+        # 7. Test app updater widgets and version parser
+        assert hasattr(self, "btn_app_update")
+        assert hasattr(self, "app_version_label")
+        assert downloader.parse_version_tuple("1.0.3") == (1, 0, 3)
+        assert downloader.parse_version_tuple("v1.0.4") > downloader.parse_version_tuple("1.0.3")
+        print("[Self-Test] Verified app update widgets and version comparison.")
+
+        # 8. Schedule clean termination after 1500ms
         print("[Self-Test] All UI components initialized cleanly. Terminating in 1500ms...")
         self.after(1500, self.destroy)

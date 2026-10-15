@@ -7,7 +7,7 @@ A lightweight, modern YouTube downloader and converter for Windows.
 ## Download & Install
 
 Download the Windows Installer:
-- ⬇️ [**Download YouTube Downloader LS (MSI Installer)**](https://github.com/lsutorus/ytd-ls/releases/download/v1.0.2/YouTubeDownloaderLS-v1.0.2.msi)
+- ⬇️ [**Download YouTube Downloader LS (MSI Installer)**](https://github.com/lsutorus/ytd-ls/releases/download/v1.0.3/YouTubeDownloaderLS-v1.0.3.msi)
 
 Double-click the `.msi` file to install. It automatically sets up shortcuts on your Desktop and Start Menu.
 
@@ -20,6 +20,7 @@ Double-click the `.msi` file to install. It automatically sets up shortcuts on y
   - **Video (MP4):** Up to 4K / 8K resolution with merged audio.
   - **Lossless & Raw Audio:** M4A, WAV, and FLAC.
 - **Clip Trimming:** Enter start and end timestamps (e.g. `00:15` to `01:30`) to download only a portion of the video.
+- **In-App Updates:** Automatically checks for new versions and lets you upgrade with a single click.
 
 ---
 

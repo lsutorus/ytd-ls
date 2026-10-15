@@ -302,6 +302,8 @@ def test_gui_instantiation() -> None:
     assert hasattr(app, "btn_set_default")
     assert hasattr(app, "btn_cookie_guide")
     assert hasattr(app, "btn_clear_cookie")
+    assert hasattr(app, "btn_app_update")
+    assert hasattr(app, "app_version_label")
 
     # Verify default mode is Audio Only (MP3)
     assert app.mode_selector.get() == "Audio Only (MP3)"
@@ -316,3 +318,14 @@ def test_gui_instantiation() -> None:
 
     # Destroy window immediately
     app.destroy()
+
+
+# -----------------------------------------------------------------------------
+# 7. App Updater Unit Tests
+# -----------------------------------------------------------------------------
+def test_parse_version_tuple() -> None:
+    assert downloader.parse_version_tuple("1.0.3") == (1, 0, 3)
+    assert downloader.parse_version_tuple("v1.0.3") == (1, 0, 3)
+    assert downloader.parse_version_tuple("v2.1.0-beta") == (2, 1, 0)
+    assert downloader.parse_version_tuple("v1.0.4") > downloader.parse_version_tuple("v1.0.3")
+    assert downloader.parse_version_tuple("v1.1.0") > downloader.parse_version_tuple("v1.0.9")
