@@ -1,3 +1,7 @@
+<p align="center">
+  <img width="212" height="212" alt="YouTube Downloader LS" src="https://github.com/user-attachments/assets/190fe152-4305-45dc-a929-f7fd55e6764e" />
+</p>
+
 # YouTube Downloader LS
 
 A lightweight, modern YouTube downloader and converter for Windows.
