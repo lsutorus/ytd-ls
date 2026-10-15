@@ -1,6 +1,9 @@
 <p align="center">
   <img width="212" height="212" alt="YouTube Downloader LS" src="https://github.com/user-attachments/assets/190fe152-4305-45dc-a929-f7fd55e6764e" />
 </p>
+<div align="center">
+  <a href="https://github.com/lsutorus/LaTeX-Inserter-CS/releases/latest"><img src="https://img.shields.io/github/v/release/lsutorus/LaTeX-Inserter-CS?color=3F5ABF&style=plastic" alt="GitHub release"></a>
+</div>
 
 # YouTube Downloader LS
 
