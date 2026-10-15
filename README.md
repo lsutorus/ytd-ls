@@ -2,6 +2,8 @@
 
 A lightweight, modern YouTube downloader and converter for Windows.
 
+<img width="660" height="557" alt="ytd-ls pic" src="https://github.com/user-attachments/assets/9ed1ed4e-c30b-4484-af04-a4824f93f24c" />
+
 ## Download & Install
 
 Download the Windows Installer:
