@@ -14,3 +14,4 @@ wheels/
 bin/
 config.json
 .pytest_cache/
+.pytest_temp/

@@ -289,8 +289,18 @@ def test_config_persistence(tmp_path: Path) -> None:
 # -----------------------------------------------------------------------------
 # 6. GUI Instantiation Smoke Test
 # -----------------------------------------------------------------------------
-def test_gui_instantiation() -> None:
+@pytest.fixture(scope="module")
+def gui_app():
     app = YouTubeDownloaderApp(self_test=True)
+    yield app
+    try:
+        app.destroy()
+    except Exception:
+        pass
+
+
+def test_gui_instantiation(gui_app: YouTubeDownloaderApp) -> None:
+    app = gui_app
     # Verify core attributes & widgets exist
     assert hasattr(app, "url_entry")
     assert hasattr(app, "mode_selector")
@@ -316,8 +326,7 @@ def test_gui_instantiation() -> None:
     assert app.var_subtitles.get() is False
     assert app.var_playlist.get() is False
 
-    # Destroy window immediately
-    app.destroy()
+    # UI verified
 
 
 # -----------------------------------------------------------------------------
@@ -328,6 +337,7 @@ def test_parse_version_tuple() -> None:
     assert downloader.parse_version_tuple("v1.0.3") == (1, 0, 3)
     assert downloader.parse_version_tuple("v2.1.0-beta") == (2, 1, 0)
     assert downloader.parse_version_tuple("v1.0.4") > downloader.parse_version_tuple("v1.0.3")
+    assert downloader.parse_version_tuple("v1.0.5") > downloader.parse_version_tuple("v1.0.4")
     assert downloader.parse_version_tuple("v1.1.0") > downloader.parse_version_tuple("v1.0.9")
 
 # -----------------------------------------------------------------------------
@@ -450,8 +460,8 @@ def test_install_ytdlp_wheel_mocked(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     downloader.reload_ytdlp_module()
 
 
-def test_app_ytdlp_update_ui_state() -> None:
-    app = YouTubeDownloaderApp(self_test=True)
+def test_app_ytdlp_update_ui_state(gui_app: YouTubeDownloaderApp) -> None:
+    app = gui_app
 
     # 1. Test already up to date UI transition
     app._on_ytdlp_already_up_to_date("2026.08.19", "https://dummy.whl")
@@ -475,5 +485,4 @@ def test_app_ytdlp_update_ui_state() -> None:
     assert "failed" in app.status_label.cget("text")
     assert app.btn_update.cget("state") == "normal"
 
-    app.destroy()
 
