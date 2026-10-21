@@ -329,3 +329,151 @@ def test_parse_version_tuple() -> None:
     assert downloader.parse_version_tuple("v2.1.0-beta") == (2, 1, 0)
     assert downloader.parse_version_tuple("v1.0.4") > downloader.parse_version_tuple("v1.0.3")
     assert downloader.parse_version_tuple("v1.1.0") > downloader.parse_version_tuple("v1.0.9")
+
+# -----------------------------------------------------------------------------
+# 8. yt-dlp Updater Unit Tests
+# -----------------------------------------------------------------------------
+def test_get_ytdlp_updates_dir(tmp_path: Path) -> None:
+    updates = downloader.get_ytdlp_updates_dir(tmp_path)
+    assert updates == tmp_path / "updates"
+
+
+def test_init_ytdlp_updates_path(tmp_path: Path) -> None:
+    pkg_dir = tmp_path / "yt_dlp"
+    pkg_dir.mkdir(parents=True)
+    (pkg_dir / "__init__.py").write_text("# dummy", encoding="utf-8")
+
+    downloader.init_ytdlp_updates_path(tmp_path)
+    import sys
+    assert str(tmp_path.resolve()) in sys.path
+    if str(tmp_path.resolve()) in sys.path:
+        sys.path.remove(str(tmp_path.resolve()))
+
+
+def test_get_current_ytdlp_version() -> None:
+    import re
+    ver = downloader.get_current_ytdlp_version()
+    assert ver != "unknown"
+    assert len(re.findall(r"\d+", ver)) >= 2
+
+
+def test_check_for_ytdlp_update_mocked_available(monkeypatch: pytest.MonkeyPatch) -> None:
+    import json
+    import urllib.request
+    from typing import Any
+
+    mock_response = json.dumps({
+        "info": {"version": "2099.01.01"},
+        "urls": [{"filename": "yt_dlp-2099.1.1-py3-none-any.whl", "url": "https://example.com/yt_dlp.whl"}],
+    }).encode("utf-8")
+
+    class MockResp:
+        def read(self) -> bytes:
+            return mock_response
+        def __enter__(self) -> "MockResp":
+            return self
+        def __exit__(self, *args: Any) -> None:
+            pass
+
+    monkeypatch.setattr(urllib.request, "urlopen", lambda req, timeout=10: MockResp())
+
+    info = downloader.check_for_ytdlp_update(current_version="2026.08.19")
+    assert info is not None
+    assert info["update_available"] is True
+    assert info["latest_version"] == "2099.01.01"
+    assert info["wheel_url"] == "https://example.com/yt_dlp.whl"
+
+
+def test_check_for_ytdlp_update_mocked_already_up_to_date(monkeypatch: pytest.MonkeyPatch) -> None:
+    import json
+    import urllib.request
+    from typing import Any
+
+    mock_response = json.dumps({
+        "info": {"version": "2026.08.19"},
+        "urls": [{"filename": "yt_dlp-2026.8.19-py3-none-any.whl", "url": "https://example.com/yt_dlp.whl"}],
+    }).encode("utf-8")
+
+    class MockResp:
+        def read(self) -> bytes:
+            return mock_response
+        def __enter__(self) -> "MockResp":
+            return self
+        def __exit__(self, *args: Any) -> None:
+            pass
+
+    monkeypatch.setattr(urllib.request, "urlopen", lambda req, timeout=10: MockResp())
+
+    info = downloader.check_for_ytdlp_update(current_version="2026.08.19")
+    assert info is not None
+    assert info["update_available"] is False
+
+
+def test_check_for_ytdlp_update_network_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    import urllib.request
+    import urllib.error
+    from typing import Any
+
+    def _mock_err(*args: Any, **kwargs: Any) -> Any:
+        raise urllib.error.URLError("Connection refused")
+
+    monkeypatch.setattr(urllib.request, "urlopen", _mock_err)
+    info = downloader.check_for_ytdlp_update()
+    assert info is None
+
+
+def test_install_ytdlp_wheel_mocked(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import sys
+    import zipfile
+    import urllib.request
+
+    mock_whl = tmp_path / "test_yt_dlp.whl"
+    with zipfile.ZipFile(mock_whl, "w") as zf:
+        zf.writestr("yt_dlp/__init__.py", "__version__ = '2099.9.9'\n")
+        zf.writestr("yt_dlp/version.py", "__version__ = '2099.09.09'\n")
+        zf.writestr("yt_dlp/utils.py", "def download_range_func(): pass\n")
+
+    monkeypatch.setattr(urllib.request, "urlopen", lambda req, timeout=30: open(mock_whl, "rb"))
+
+    updates_dir = tmp_path / "updates"
+    success, new_ver = downloader.install_ytdlp_wheel("https://dummy.url/pkg.whl", updates_dir=updates_dir)
+    assert success is True
+    assert new_ver == "2099.09.09"
+    assert (updates_dir / "yt_dlp" / "__init__.py").is_file()
+
+    # Clean up sys.path and sys.modules
+    if str(updates_dir.resolve()) in sys.path:
+        sys.path.remove(str(updates_dir.resolve()))
+    for mod in list(sys.modules.keys()):
+        if mod == "yt_dlp" or mod.startswith("yt_dlp."):
+            sys.modules.pop(mod, None)
+    downloader.reload_ytdlp_module()
+
+
+def test_app_ytdlp_update_ui_state() -> None:
+    app = YouTubeDownloaderApp(self_test=True)
+
+    # 1. Test already up to date UI transition
+    app._on_ytdlp_already_up_to_date("2026.08.19", "https://dummy.whl")
+    assert "already up to date" in app.status_label.cget("text")
+    assert app.btn_update.cget("state") == "normal"
+    assert app.btn_update.cget("text") == "Update yt-dlp"
+
+    # 2. Test successful install UI transition
+    app._on_ytdlp_install_success("2026.09.01")
+    assert "updated successfully" in app.status_label.cget("text")
+    assert "2026.09.01" in app.version_label.cget("text")
+    assert app.btn_update.cget("state") == "normal"
+
+    # 3. Test check failed UI transition
+    app._on_ytdlp_check_failed("PyPI unreachable")
+    assert "check failed" in app.status_label.cget("text")
+    assert app.btn_update.cget("state") == "normal"
+
+    # 4. Test install failed UI transition
+    app._on_ytdlp_install_failed("Disk full")
+    assert "failed" in app.status_label.cget("text")
+    assert app.btn_update.cget("state") == "normal"
+
+    app.destroy()
+

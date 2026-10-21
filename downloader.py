@@ -11,15 +11,54 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import sys
 import tempfile
 import urllib.request
+import zipfile
 from pathlib import Path
 from typing import Any, Callable
 
 from PIL import Image
+
+
+def get_ytdlp_updates_dir(base_dir: Path | None = None) -> Path:
+    """Return persistent directory for downloaded yt-dlp package updates."""
+    if base_dir:
+        return base_dir / "updates"
+    appdata = os.environ.get("APPDATA")
+    if appdata:
+        root_dir = Path(appdata) / "YouTubeDownloaderLS"
+    else:
+        root_dir = Path.home() / ".youtubedownloaderls"
+    return root_dir / "updates"
+
+
+def init_ytdlp_updates_path(updates_dir: Path | None = None) -> None:
+    """Ensure updates directory is prepended to sys.path if an updated yt_dlp exists."""
+    target_dir = updates_dir or get_ytdlp_updates_dir()
+    pkg_dir = target_dir / "yt_dlp"
+    if pkg_dir.is_dir() and (pkg_dir / "__init__.py").is_file():
+        target_str = str(target_dir.resolve())
+        if target_str not in sys.path:
+            sys.path.insert(0, target_str)
+
+
+# Initialize updates path before importing yt_dlp
+init_ytdlp_updates_path()
+
 import yt_dlp
 from yt_dlp.utils import download_range_func
+
+
+def get_current_ytdlp_version() -> str:
+    """Return the currently loaded yt-dlp version string."""
+    try:
+        import yt_dlp.version
+
+        return getattr(yt_dlp.version, "__version__", "unknown")
+    except Exception:
+        return "unknown" 
 
 def get_config_path(config_path: Path | None = None) -> Path:
     """Return persistent user config path in APPDATA or provided path."""
@@ -565,7 +604,7 @@ def download_video(url: str, ydl_opts: dict[str, Any]) -> None:
 # -----------------------------------------------------------------------------
 # Application Version & GitHub Update Helpers
 # -----------------------------------------------------------------------------
-APP_VERSION = "1.0.3"
+APP_VERSION = "1.0.4"
 GITHUB_REPO = "lsutorus/ytd-ls"
 
 
@@ -621,3 +660,155 @@ def download_update_msi(msi_url: str, progress_callback: Callable[[float], None]
         return str(msi_dest.resolve())
     except Exception:
         return None
+
+
+def check_for_ytdlp_update(
+    current_version: str | None = None,
+    timeout: float = 10.0,
+) -> dict[str, Any] | None:
+    """Query PyPI JSON API to detect if a newer yt-dlp release is published."""
+    if not current_version:
+        current_version = get_current_ytdlp_version()
+
+    try:
+        url = "https://pypi.org/pypi/yt-dlp/json"
+        req = urllib.request.Request(url, headers={"User-Agent": "YouTubeDownloaderLS"})
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+
+        latest_ver = data.get("info", {}).get("version", "")
+        whl_url = None
+        for item in data.get("urls", []):
+            fname = item.get("filename", "")
+            if fname.endswith(".whl"):
+                whl_url = item.get("url")
+                break
+
+        is_newer = parse_version_tuple(latest_ver) > parse_version_tuple(current_version)
+        return {
+            "current_version": current_version,
+            "latest_version": latest_ver,
+            "update_available": is_newer,
+            "wheel_url": whl_url,
+        }
+    except Exception as e:
+        print(f"[check_for_ytdlp_update error] {e}", file=sys.stderr)
+        return None
+
+
+def reload_ytdlp_module() -> str:
+    """Unload cached yt_dlp submodules from sys.modules and reload active yt_dlp."""
+    for mod_name in list(sys.modules.keys()):
+        if mod_name == "yt_dlp" or mod_name.startswith("yt_dlp."):
+            sys.modules.pop(mod_name, None)
+
+    import yt_dlp as reloaded_ytdlp
+    import yt_dlp.version
+    from yt_dlp.utils import download_range_func as reloaded_drf
+
+    globals()["yt_dlp"] = reloaded_ytdlp
+    globals()["download_range_func"] = reloaded_drf
+
+    return getattr(yt_dlp.version, "__version__", "unknown")
+
+
+def install_ytdlp_wheel(
+    wheel_url: str,
+    updates_dir: Path | None = None,
+    timeout: float = 30.0,
+) -> tuple[bool, str]:
+    """Download and extract a pure-Python yt-dlp wheel into the updates directory.
+
+    Returns:
+        (True, new_version) on success.
+        (False, error_message) on failure.
+    """
+    target_updates_dir = updates_dir or get_ytdlp_updates_dir()
+    temp_dir = Path(tempfile.mkdtemp(prefix="ytdlp_upd_"))
+    try:
+        whl_dest = temp_dir / "yt_dlp_package.whl"
+        req = urllib.request.Request(wheel_url, headers={"User-Agent": "YouTubeDownloaderLS"})
+        with urllib.request.urlopen(req, timeout=timeout) as resp, open(whl_dest, "wb") as f:
+            shutil.copyfileobj(resp, f)
+
+        extract_dest = temp_dir / "extracted"
+        with zipfile.ZipFile(whl_dest, "r") as zf:
+            zf.extractall(extract_dest)
+
+        extracted_pkg = extract_dest / "yt_dlp"
+        if not extracted_pkg.is_dir():
+            return False, "Downloaded wheel did not contain 'yt_dlp' package."
+
+        target_updates_dir.mkdir(parents=True, exist_ok=True)
+        final_pkg_dir = target_updates_dir / "yt_dlp"
+
+        # Copy extracted package into target updates directory
+        shutil.copytree(extracted_pkg, final_pkg_dir, dirs_exist_ok=True)
+
+        # Prepend updates directory to sys.path
+        updates_str = str(target_updates_dir.resolve())
+        if updates_str in sys.path:
+            sys.path.remove(updates_str)
+        sys.path.insert(0, updates_str)
+
+        new_version = reload_ytdlp_module()
+        return True, new_version
+    except Exception as e:
+        err_msg = str(e)
+        print(f"[install_ytdlp_wheel error] {err_msg}", file=sys.stderr)
+        return False, err_msg
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+def install_ytdlp_update(
+    wheel_url: str | None = None,
+    updates_dir: Path | None = None,
+) -> tuple[bool, str]:
+    """Perform yt-dlp update across frozen PyInstaller, venv, or standalone Python.
+
+    Returns:
+        (True, new_version) on success.
+        (False, error_message) on failure.
+    """
+    is_frozen = getattr(sys, "frozen", False)
+    in_venv = sys.prefix != getattr(sys, "base_prefix", sys.prefix)
+
+    # 1. If running in a virtualenv (development mode, non-frozen), attempt package manager first
+    if not is_frozen and in_venv:
+        # Try uv first
+        try:
+            cmd = ["uv", "pip", "install", "-U", "yt-dlp", "--python", sys.executable]
+            res = subprocess.run(cmd, capture_output=True, text=True)
+            if res.returncode == 0:
+                new_ver = reload_ytdlp_module()
+                return True, new_ver
+            else:
+                print(f"[install_ytdlp_update] uv returned code {res.returncode}:\n{res.stderr}", file=sys.stderr)
+        except FileNotFoundError:
+            pass
+        except Exception as e:
+            print(f"[install_ytdlp_update] uv execution error: {e}", file=sys.stderr)
+
+        # Fallback to sys.executable -m pip
+        try:
+            cmd = [sys.executable, "-m", "pip", "install", "-U", "yt-dlp"]
+            res = subprocess.run(cmd, capture_output=True, text=True)
+            if res.returncode == 0:
+                new_ver = reload_ytdlp_module()
+                return True, new_ver
+            else:
+                print(f"[install_ytdlp_update] pip returned code {res.returncode}:\n{res.stderr}", file=sys.stderr)
+        except Exception as e:
+            print(f"[install_ytdlp_update] pip execution error: {e}", file=sys.stderr)
+
+    # 2. Frozen PyInstaller mode, non-venv, or fallback when package manager fails:
+    # Use direct wheel download and extraction
+    if not wheel_url:
+        info = check_for_ytdlp_update()
+        if info and info.get("wheel_url"):
+            wheel_url = info["wheel_url"]
+        else:
+            return False, "Could not locate yt-dlp wheel package URL on PyPI."
+
+    return install_ytdlp_wheel(wheel_url, updates_dir=updates_dir)

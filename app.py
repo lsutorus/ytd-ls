@@ -123,11 +123,7 @@ class YouTubeDownloaderApp(ctk.CTk):
         corner_frame = ctk.CTkFrame(header_frame, fg_color="transparent")
         corner_frame.grid(row=0, column=1, sticky="e")
 
-        try:
-            import yt_dlp.version
-            cur_version = f"yt-dlp v{yt_dlp.version.__version__}"
-        except Exception:
-            cur_version = "yt-dlp"
+        cur_version = f"yt-dlp v{downloader.get_current_ytdlp_version()}"
 
         # App version and update check button
         self.app_version_label = ctk.CTkLabel(
@@ -935,45 +931,101 @@ class YouTubeDownloaderApp(ctk.CTk):
             messagebox.showerror("Error", f"Failed to open directory: {e}")
 
     def _on_update_ytdlp_clicked(self) -> None:
-        """Background thread worker to update yt-dlp."""
-        self.btn_update.configure(state="disabled", text="Updating...")
-        self._set_status("Updating yt-dlp package in background...")
+        """Background thread worker to check and update yt-dlp."""
+        self.btn_update.configure(state="disabled", text="Checking...")
+        self._set_status("Checking for yt-dlp updates...")
 
         def _worker() -> None:
             try:
-                # Run `uv pip install -U yt-dlp` or fallback to pip
-                cmd = ["uv", "pip", "install", "-U", "yt-dlp"]
-                res = subprocess.run(cmd, capture_output=True, text=True)
-                if res.returncode != 0:
-                    # Fallback to python -m pip
-                    cmd = [sys.executable, "-m", "pip", "install", "-U", "yt-dlp"]
-                    res = subprocess.run(cmd, capture_output=True, text=True)
+                update_info = downloader.check_for_ytdlp_update()
+                if not update_info:
+                    self.after(
+                        0,
+                        lambda: self._on_ytdlp_check_failed(
+                            "Could not connect to PyPI servers. Please check your internet connection."
+                        ),
+                    )
+                    return
 
-                self.after(0, lambda: self._on_update_finished(res.returncode == 0))
+                cur_ver = update_info.get("current_version", "unknown")
+                latest_ver = update_info.get("latest_version", "unknown")
+                update_avail = update_info.get("update_available", False)
+                whl_url = update_info.get("wheel_url")
+
+                if not update_avail:
+                    self.after(0, lambda: self._on_ytdlp_already_up_to_date(cur_ver, whl_url))
+                    return
+
+                self.after(0, lambda: self._start_ytdlp_install(latest_ver, whl_url))
             except Exception as e:
                 self.after(0, lambda err=str(e): self._on_update_error(err))
 
         threading.Thread(target=_worker, daemon=True).start()
 
-    def _on_update_finished(self, success: bool) -> None:
+    def _on_ytdlp_already_up_to_date(self, cur_ver: str, whl_url: str | None) -> None:
         self.btn_update.configure(state="normal", text="Update yt-dlp")
-        if success:
-            try:
-                import importlib
-                import yt_dlp.version
+        self._set_status(f"yt-dlp (v{cur_ver}) is already up to date.")
+        if not self.self_test:
+            if messagebox.askyesno(
+                "yt-dlp Up to Date",
+                f"yt-dlp (v{cur_ver}) is already the newest version.\n\n"
+                "Would you like to force reinstall it anyway?",
+            ):
+                self._start_ytdlp_install(cur_ver, whl_url)
 
-                importlib.reload(yt_dlp.version)
-                new_ver = f"yt-dlp v{yt_dlp.version.__version__}"
-                self.version_label.configure(text=new_ver)
-                self._set_status(f"yt-dlp updated successfully to {new_ver}!")
-            except Exception:
-                self._set_status("yt-dlp updated successfully.")
-        else:
-            self._set_status("yt-dlp update failed. Check console output.")
+    def _start_ytdlp_install(self, target_ver: str, whl_url: str | None) -> None:
+        self.btn_update.configure(state="disabled", text="Updating...")
+        self._set_status(f"Downloading and installing yt-dlp v{target_ver}...")
+
+        def _install_worker() -> None:
+            try:
+                success, result = downloader.install_ytdlp_update(whl_url)
+                if success:
+                    self.after(0, lambda: self._on_ytdlp_install_success(result))
+                else:
+                    self.after(0, lambda: self._on_ytdlp_install_failed(result))
+            except Exception as e:
+                self.after(0, lambda err=str(e): self._on_update_error(err))
+
+        threading.Thread(target=_install_worker, daemon=True).start()
+
+    def _on_ytdlp_install_success(self, new_version: str) -> None:
+        self.btn_update.configure(state="normal", text="Update yt-dlp")
+        new_ver_text = f"yt-dlp v{new_version}"
+        self.version_label.configure(text=new_ver_text)
+        self._set_status(f"yt-dlp updated successfully to {new_ver_text}!")
+        if not self.self_test:
+            messagebox.showinfo(
+                "Update Complete",
+                f"yt-dlp has been updated successfully to v{new_version}!",
+            )
+
+    def _on_ytdlp_install_failed(self, error_msg: str) -> None:
+        self.btn_update.configure(state="normal", text="Update yt-dlp")
+        self._set_status(f"yt-dlp update failed: {error_msg}")
+        if not self.self_test:
+            messagebox.showerror(
+                "Update Error",
+                f"Failed to update yt-dlp:\n{error_msg}\n\nCheck console output for additional details.",
+            )
+
+    def _on_ytdlp_check_failed(self, reason: str) -> None:
+        self.btn_update.configure(state="normal", text="Update yt-dlp")
+        self._set_status("yt-dlp update check failed.")
+        if not self.self_test:
+            messagebox.showwarning(
+                "Update Check Failed",
+                f"Could not check for yt-dlp updates:\n{reason}",
+            )
 
     def _on_update_error(self, err: str) -> None:
         self.btn_update.configure(state="normal", text="Update yt-dlp")
         self._set_status(f"Error during yt-dlp update: {err}")
+        if not self.self_test:
+            messagebox.showerror(
+                "Update Error",
+                f"An unexpected error occurred during yt-dlp update:\n{err}",
+            )
 
     # -------------------------------------------------------------------------
     # Application Release Update Management
